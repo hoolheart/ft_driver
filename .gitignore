@@ -1,0 +1,21 @@
+# Object files
+*.o
+*.ko
+
+# Libraries
+*.lib
+*.a
+
+# Shared objects (inc. Windows DLLs)
+*.so
+*.so.*
+
+# Executables
+*.out
+
+# Build files
+*.cmd
+*.mod.c
+*.tmp_versions
+*modules.order
+*Module.symvers
