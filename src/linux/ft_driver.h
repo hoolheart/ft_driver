@@ -1,5 +1,5 @@
-// Copyright 2014 Raytheon BBN Technologies
-// Original Author: Colm Ryan (cryan@bbn.com)
+// Copyright 2017
+// Original Author: Edward Chou (prettyage.new@gmail.com)
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -10,12 +10,12 @@
 #include <linux/sched.h>
 
 
-#define VENDOR_ID 0x1172
-#define DEVICE_ID 0xbb4e
+#define VENDOR_ID 0x10ee
+#define DEVICE_ID 0x7
 
-#define DRIVER_NAME "bbn_fpga"
-#define BOARD_NAME "piecomm1"
-#define NUM_BARS 3  //we use up to BAR2
+#define DRIVER_NAME "FIBRE_TEST"
+#define BOARD_NAME "pcie_ft1"
+#define NUM_BARS 1  //we use up to BAR0
 
 
 //fileio.c functions for device

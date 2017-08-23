@@ -1,5 +1,5 @@
-// Copyright 2014 Raytheon BBN Technologies
-// Original Author: Colm Ryan (cryan@bbn.com)
+// Copyright 2017
+// Original Author: Edward Chou (prettyage.new@gmail.com)
 
 #include <iostream>
 
@@ -121,12 +121,12 @@ bool test_long_write(int FID){
 
 int main(int argc, char const *argv[])
 {
-	cout << "Starting test of PIECOMM kernel module." << endl;
+	cout << "Starting test of FIBRE_TEST kernel module." << endl;
 
 
 	//Open the device
 	//TODO: sort out what flags are necessary
-	int FID = open("/dev/piecomm1", O_RDWR | O_NONBLOCK);
+	int FID = open("/dev/pcie_ft1", O_RDWR | O_NONBLOCK);
 	if (FID < 0){
 		cout << "Could not open device handle!" << endl;
 		return -1;

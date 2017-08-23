@@ -1,4 +1,4 @@
-obj-m := BBN_FPGA.o
+obj-m := FIBRE_TEST.o
 
 KVERSION = $(shell uname -r)
 

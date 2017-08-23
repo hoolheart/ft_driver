@@ -1,12 +1,12 @@
-// Copyright 2014 Raytheon BBN Technologies
-// Original Author: Colm Ryan (cryan@bbn.com)
+// Copyright 2017
+// Original Author: Edward Chou (prettyage.new@gmail.com)
 
-#include "BBN_FPGA.h"
+#include "ft_driver.h"
 
 
 MODULE_LICENSE("MIT");
-MODULE_AUTHOR("Colm Ryan (cryan@bbn.com)");
-MODULE_DESCRIPTION("Driver for PCI Altera FPGA boards with a PCI Qsys interface.");
+MODULE_AUTHOR("Edward Chou <prettyage.new@gmail.com>");
+MODULE_DESCRIPTION("Driver for PCIe Fibre-Test board.");
 
 /* Forward Static PCI driver functions for kernel module */
 static int probe(struct pci_dev *dev, const struct pci_device_id *id);
@@ -57,10 +57,10 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
 
 	struct DevInfo_t * devInfo = (struct DevInfo_t *) filePtr->private_data;
 
-	printk(KERN_INFO "[BBN FPGA] rw_dispatcher: Entering function.\n");
+	printk(KERN_INFO "[FT] rw_dispatcher: Entering function.\n");
 
 	if (down_interruptible(&devInfo->sem)) {
-		printk(KERN_WARNING "[BBN FPGA] rw_dispatcher: Unable to get semaphore!\n");
+		printk(KERN_WARNING "[FT] rw_dispatcher: Unable to get semaphore!\n");
 		return -1;
 	}
 
@@ -69,7 +69,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
 	//Map the device address to the iomaped memory
 	startAddr = (void*) (devInfo->bar[iocmd.barNum] + iocmd.devAddr) ;
 
-	printk(KERN_INFO "[BBN FPGA] rw_dispatcher: Reading/writing %u bytes from user address 0x%p to device address %u.\n", (unsigned int) count, iocmd.userAddr, iocmd.devAddr);
+	printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes from user address 0x%p to device address %u.\n", (unsigned int) count, iocmd.userAddr, iocmd.devAddr);
 	while (count > 0){
 		bytesToTransfer = (count > BUFFER_SIZE) ? BUFFER_SIZE : count;
 
@@ -97,12 +97,12 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
 	//Get a handle to our devInfo and store it in the file handle
 	struct DevInfo_t * devInfo = 0;
 
-	printk(KERN_INFO "[BBN FPGA] fpga_open: Entering function.\n");
+	printk(KERN_INFO "[FT] fpga_open: Entering function.\n");
 
 	devInfo = container_of(inode->i_cdev, struct DevInfo_t, cdev);
 
 	if (down_interruptible(&devInfo->sem)) {
-		printk(KERN_WARNING "[BBN FPGA] fpga_open: Unable to get semaphore!\n");
+		printk(KERN_WARNING "[FT] fpga_open: Unable to get semaphore!\n");
 		return -1;
 	}
 
@@ -116,13 +116,13 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
 	up(&devInfo->sem);
 
 	if (down_interruptible(&devInfo->sem)) {
-		printk(KERN_WARNING "[BBN FPGA] fpga_open: Unable to get semaphore!\n");
+		printk(KERN_WARNING "[FT] fpga_open: Unable to get semaphore!\n");
 		return -1;
 	}
 
 	up(&devInfo->sem);
 
-	printk(KERN_INFO "[BBN FPGA] fpga_open: Leaving function.\n");
+	printk(KERN_INFO "[FT] fpga_open: Leaving function.\n");
 
 	return 0;
 }
@@ -131,7 +131,7 @@ int fpga_close(struct inode *inode, struct file *filePtr){
 	struct DevInfo_t * devInfo = (struct DevInfo_t *)filePtr->private_data;
 
 	if (down_interruptible(&devInfo->sem)) {
-		printk(KERN_WARNING "[BBN FPGA] fpga_close: Unable to get semaphore!\n");
+		printk(KERN_WARNING "[FT] fpga_close: Unable to get semaphore!\n");
 		return -1;
 	}
 
@@ -189,7 +189,7 @@ static int map_bars(struct DevInfo_t *devInfo){
 	int ct = 0;
 	unsigned long barStart, barEnd, barLength;
 	for (ct = 0; ct < NUM_BARS; ct++){
-		printk(KERN_INFO "[BBN FPGA] Trying to map BAR #%d of %d.\n", ct, NUM_BARS);
+		printk(KERN_INFO "[FT] Trying to map BAR #%d of %d.\n", ct, NUM_BARS);
 		barStart = pci_resource_start(devInfo->pciDev, ct);
 		barEnd = pci_resource_end(devInfo->pciDev, ct);
 		barLength = barEnd - barStart + 1;
@@ -199,13 +199,13 @@ static int map_bars(struct DevInfo_t *devInfo){
 		//Check for empty BAR
 		if (!barStart || !barEnd) {
 			devInfo->barLengths[ct] = 0;
-			printk(KERN_INFO "[BBN FPGA] Empty BAR #%d.\n", ct);
+			printk(KERN_INFO "[FT] Empty BAR #%d.\n", ct);
 			continue;
 		}
 
 		//Check for messed up BAR
 		if (barLength < 1) {
-			printk(KERN_WARNING "[BBN FPGA] BAR #%d length is less than 1 byte.\n", ct);
+			printk(KERN_WARNING "[FT] BAR #%d length is less than 1 byte.\n", ct);
 			continue;
 		}
 
@@ -214,11 +214,11 @@ static int map_bars(struct DevInfo_t *devInfo){
 		devInfo->bar[ct] = pci_iomap(devInfo->pciDev, ct, barLength);
 
 		if (!devInfo->bar[ct]) {
-			printk(KERN_WARNING "[BBN FPGA] Could not map BAR #%d.\n", ct);
+			printk(KERN_WARNING "[FT] Could not map BAR #%d.\n", ct);
 			return -1;
 		}
 
-		printk(KERN_INFO "[BBN FPGA] BAR%d mapped at 0x%p with length %lu.\n", ct, devInfo->bar[ct], barLength);
+		printk(KERN_INFO "[FT] BAR%d mapped at 0x%p with length %lu.\n", ct, devInfo->bar[ct], barLength);
 	}
 	return 0;
 }  
@@ -247,8 +247,8 @@ static int probe(struct pci_dev *dev, const struct pci_device_id *id) {
 		//Initalize driver info 
 		struct DevInfo_t *devInfo = 0;
 
-		printk(KERN_INFO "[BBN FPGA] Entered driver probe function.\n");
-		printk(KERN_INFO "[BBN FPGA] vendor = 0x%x, device = 0x%x \n", dev->vendor, dev->device); 
+		printk(KERN_INFO "[FT] Entered driver probe function.\n");
+		printk(KERN_INFO "[FT] vendor = 0x%x, device = 0x%x \n", dev->vendor, dev->device); 
 
 		//Allocate and zero memory for devInfo
 
@@ -273,7 +273,7 @@ static int probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
 		//Enable the PCI
 		if (pci_enable_device(dev)){
-			printk(KERN_WARNING "[BBN FPGA] pci_enable_device failed!\n");
+			printk(KERN_WARNING "[FT] pci_enable_device failed!\n");
 			return -1;
 		}
 
@@ -294,11 +294,11 @@ static void remove(struct pci_dev *dev) {
 
 	struct DevInfo_t *devInfo = 0;
 	
-	printk(KERN_INFO "[BBN FPGA] Entered BBN FPGA driver remove function.\n");
+	printk(KERN_INFO "[FT] Entered BBN FPGA driver remove function.\n");
 	
 	devInfo = (struct DevInfo_t*) dev_get_drvdata(&dev->dev);
 	if (devInfo == 0) {
-		printk(KERN_WARNING "[BBN FPGA] remove: devInfo is 0");
+		printk(KERN_WARNING "[FT] remove: devInfo is 0");
 		return;
 	}
 
@@ -319,12 +319,12 @@ static void remove(struct pci_dev *dev) {
 }
 
 static int fpga_init(void){
-	printk(KERN_INFO "[BBN FPGA] Loading BBN FPGA driver!\n");
+	printk(KERN_INFO "[FT] Loading BBN FPGA driver!\n");
 	return pci_register_driver(&fpgaDriver);
 }
 
 static void fpga_exit(void){
-	printk(KERN_INFO "[BBN FPGA] Exiting BBN FPGA driver!\n");
+	printk(KERN_INFO "[FT] Exiting BBN FPGA driver!\n");
 	pci_unregister_driver(&fpgaDriver);
 }
 
