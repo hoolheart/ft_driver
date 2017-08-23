@@ -37,6 +37,15 @@ struct file_operations fileOps = {
 	.release =  fpga_close,
 };
 
+//IO COMMAND TYPE
+enum FT_IO_CMD {
+	BAR_IO = 0,
+	BAR_IO_REPEAT,
+	FIBRE_DATA_SIZE,
+	FIBRE_DATA,
+	
+	FT_IO_CMD_END
+};
 
 /*I/0 - should move to separate file at some point */
 struct IOCmd_t {
