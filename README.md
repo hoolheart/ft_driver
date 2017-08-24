@@ -16,5 +16,3 @@ The driver is currently written for the Fibre-Test PCIe board based on Xilix FPG
 4. Run the load_driver script as root: ```sudo load_driver.sh```
 5. Move back into the test directory.  Compile the test program with: ```g++ -std=c++11 test.cpp -o test.out``` and then run the executable for some simple tests.
 
-
- 

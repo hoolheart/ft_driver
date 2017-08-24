@@ -1,11 +1,11 @@
 // Copyright 2017
-// Original Author: Edward Chou (prettyage.new@gmail.com)
+// Original Author: Huide Zhou (prettyage.new@gmail.com)
 
 #include "ft_driver.h"
 
 
 MODULE_LICENSE("MIT");
-MODULE_AUTHOR("Edward Chou <prettyage.new@gmail.com>");
+MODULE_AUTHOR("Huide Zhou <prettyage.new@gmail.com>");
 MODULE_DESCRIPTION("Driver for PCIe Fibre-Test board.");
 
 /* Forward Static PCI driver functions for kernel module */
@@ -14,7 +14,6 @@ static void remove(struct pci_dev *dev);
 
 // static int  init_chrdev (struct aclpci_dev *aclpci);
 
-
 //Fill in kernel structures with a list of ids this driver can handle
 static struct pci_device_id idTable[] = {
 	{ PCI_DEVICE(VENDOR_ID, DEVICE_ID) },
@@ -22,6 +21,7 @@ static struct pci_device_id idTable[] = {
 };
 MODULE_DEVICE_TABLE(pci, idTable);
 
+//PCI driver structure
 static struct pci_driver fpgaDriver = {
 	.name = DRIVER_NAME,
 	.id_table = idTable,
@@ -29,6 +29,7 @@ static struct pci_driver fpgaDriver = {
 	.remove = remove,
 };
 
+//file operations structure
 struct file_operations fileOps = {
 	.owner =    THIS_MODULE,
 	.read =     fpga_read,
@@ -38,13 +39,12 @@ struct file_operations fileOps = {
 };
 
 //IO COMMAND TYPE
-enum FT_IO_CMD {
+enum FPGA_IO_CMD {
 	BAR_IO = 0,
 	BAR_IO_REPEAT,
-	FIBRE_DATA_SIZE,
-	FIBRE_DATA,
+	DMA_DATA,
 	
-	FT_IO_CMD_END
+	FPGA_IO_CMD_END
 };
 
 /*I/0 - should move to separate file at some point */
@@ -55,7 +55,7 @@ struct IOCmd_t {
 	void * userAddr; // virtual address in user space to read/write from
 };
 
-ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool rwFlag){
+ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool rwFlag) {
 
 	//Read the command from the buffer
 	struct IOCmd_t iocmd; 
@@ -63,41 +63,117 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
 
 	size_t bytesDone = 0;
 	size_t bytesToTransfer = 0;
+	size_t remainSize = 0;
+	size_t currentIndex = 0;
 
 	struct DevInfo_t * devInfo = (struct DevInfo_t *) filePtr->private_data;
 
 	printk(KERN_INFO "[FT] rw_dispatcher: Entering function.\n");
 
+	//fetch command
+	copy_from_user(&iocmd, (void __user *) buf, sizeof(iocmd));
+	//check command
+	if((iocmd.cmd<BAR_IO) || (iocmd.cmd>=FPGA_IO_CMD_END)) {
+		printk(KERN_WARNING "[FT] rw_dispatcher: Invalid command type: %u!\n", iocmd.cmd);
+		return -2;
+	}
+	//check bar
+	if((iocmd.cmd>=BAR_IO) && (iocmd.cmd<=BAR_IO_REPEAT)) {
+		if((iocmd.barNum>=NUM_BARS)) {
+			printk(KERN_WARNING "[FT] rw_dispatcher: Invalid bar number: %u!\n", iocmd.barNum);
+			return -3;
+		}
+		if((iocmd.devAddr>=devInfo->barLength[iocmd.barNum])) {
+			printk(KERN_WARNING "[FT] rw_dispatcher: Invalid device address %u in bar %u!\n", iocmd.devAddr, iocmd.barNum);
+			return -4;
+		}
+		if((iocmd.cmd==BAR_IO) && ((iocmd.devAddr+count)>=devInfo->barLength[iocmd.barNum])) {
+			printk(KERN_WARNING "[FT] rw_dispatcher: Invalid count %u from device address %u in bar %u!\n", (unsigned int)count, iocmd.devAddr, iocmd.barNum);
+			return -4;
+		}
+		//Map the device address to the iomaped memory
+		startAddr = (void*) (devInfo->bar[iocmd.barNum] + iocmd.devAddr) ;
+	}
+
+	//lock device
 	if (down_interruptible(&devInfo->sem)) {
 		printk(KERN_WARNING "[FT] rw_dispatcher: Unable to get semaphore!\n");
 		return -1;
 	}
 
-	copy_from_user(&iocmd, (void __user *) buf, sizeof(iocmd));
-
-	//Map the device address to the iomaped memory
-	startAddr = (void*) (devInfo->bar[iocmd.barNum] + iocmd.devAddr) ;
-
-	printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes from user address 0x%p to device address %u.\n", (unsigned int) count, iocmd.userAddr, iocmd.devAddr);
-	while (count > 0){
-		bytesToTransfer = (count > BUFFER_SIZE) ? BUFFER_SIZE : count;
-
-
-		if (rwFlag) {
-			//First read from device into kernel memory 
-			memcpy_fromio(devInfo->buffer, startAddr + bytesDone, bytesToTransfer);
-			//Then into user space
-			copy_to_user(iocmd.userAddr + bytesDone, devInfo->buffer, bytesToTransfer);
+	//operate depending command TYPE
+	switch (iocmd.cmd) {
+		case BAR_IO: {
+			printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes from user address 0x%p to device address %u.\n",
+			       (unsigned int) count, iocmd.userAddr, iocmd.devAddr);
+			while (count > 0){
+				bytesToTransfer = (count > BUFFER_SIZE) ? BUFFER_SIZE : count;
+				remainSize = (bytesToTransfer+3)/4;
+				if (rwFlag) {
+					//First read from device into kernel memory 
+					currentIndex = 0;
+					while (remainSize > 0) {
+						devInfo->buffer[currentIndex] = ioread32(startAddr + bytesDone + currentIndex*4);
+						remainSize--; currentIndex++;
+					}
+					//Then into user space
+					copy_to_user(iocmd.userAddr + bytesDone, (char*)devInfo->buffer, bytesToTransfer);
+				}
+				else{
+					//First copy from user to buffer
+					copy_from_user((char*)devInfo->buffer, iocmd.userAddr + bytesDone, bytesToTransfer);
+					//Then into the device
+					currentIndex = 0;
+					while (remainSize > 0) {
+						iowrite32(devInfo->buffer[currentIndex], startAddr + bytesDone + currentIndex*4);
+						remainSize--; currentIndex++;
+					}
+				}
+				bytesDone += bytesToTransfer;
+				count -= bytesToTransfer;
+			}
+			break;
 		}
-		else{
-			//First copy from user to buffer
-			copy_from_user(devInfo->buffer, iocmd.userAddr + bytesDone, bytesToTransfer);
-			//Then into the device
-			memcpy_toio(startAddr + bytesDone, devInfo->buffer, bytesToTransfer);
+		case BAR_IO_REPEAT: {
+			printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes repeatly from user address 0x%p to device address %u.\n",
+			       (unsigned int) count, iocmd.userAddr, iocmd.devAddr);
+			while (count > 0){
+				bytesToTransfer = (count > BUFFER_SIZE) ? BUFFER_SIZE : count;
+				remainSize = (bytesToTransfer+3)/4;
+				if (rwFlag) {
+					//First read from device into kernel memory 
+					currentIndex = 0;
+					while (remainSize > 0) {
+						devInfo->buffer[currentIndex] = ioread32(startAddr);
+						remainSize--; currentIndex++;
+					}
+					//Then into user space
+					copy_to_user(iocmd.userAddr + bytesDone, (char*)devInfo->buffer, bytesToTransfer);
+				}
+				else{
+					//First copy from user to buffer
+					memset(devInfo->buffer,0,remainSize*4);
+					copy_from_user((char*)devInfo->buffer, iocmd.userAddr + bytesDone, bytesToTransfer);
+					//Then into the device
+					currentIndex = 0;
+					while (remainSize > 0) {
+						iowrite32(devInfo->buffer[currentIndex], startAddr);
+						remainSize--; currentIndex++;
+					}
+				}
+				bytesDone += bytesToTransfer;
+				count -= bytesToTransfer;
+			}
+			break;
 		}
-		bytesDone += bytesToTransfer;
-		count -= bytesToTransfer;
+		case DMA_DATA: {
+			break;
+		}
+		default: {
+			break;
+		}
 	}
+
 	up(&devInfo->sem);
 	return bytesDone;
 }
@@ -124,18 +200,12 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
 	//Return semaphore
 	up(&devInfo->sem);
 
-	if (down_interruptible(&devInfo->sem)) {
-		printk(KERN_WARNING "[FT] fpga_open: Unable to get semaphore!\n");
-		return -1;
-	}
-
-	up(&devInfo->sem);
-
 	printk(KERN_INFO "[FT] fpga_open: Leaving function.\n");
 
 	return 0;
 }
-int fpga_close(struct inode *inode, struct file *filePtr){
+
+int fpga_close(struct inode *inode, struct file *filePtr) {
 
 	struct DevInfo_t * devInfo = (struct DevInfo_t *)filePtr->private_data;
 
@@ -151,16 +221,16 @@ int fpga_close(struct inode *inode, struct file *filePtr){
 }
 
 //Pass-through to main dispatcher
-ssize_t fpga_read(struct file *filePtr, char __user *buf, size_t count, loff_t *pos){
-
+ssize_t fpga_read(struct file *filePtr, char __user *buf, size_t count, loff_t *pos) {
 	return rw_dispatcher(filePtr, buf, count, true);
 }
-ssize_t fpga_write(struct file *filePtr, const char __user *buf, size_t count, loff_t *pos){
 
+//Pass-through to main dispatcher
+ssize_t fpga_write(struct file *filePtr, const char __user *buf, size_t count, loff_t *pos) {
 		return rw_dispatcher(filePtr, (char __user *) buf, count, false);
 }
 
-static int setup_chrdev(struct DevInfo_t *devInfo){
+static int setup_chrdev(struct DevInfo_t *devInfo) {
 	/*
 	Setup the /dev/deviceName to allow user programs to read/write to the driver.
 	*/
@@ -183,14 +253,14 @@ static int setup_chrdev(struct DevInfo_t *devInfo){
 	devInfo->cdev.ops = &fileOps;
 	result = cdev_add(&devInfo->cdev, devNum, 1 /* one device */);
 	if (result) {
-		printk(KERN_NOTICE "Error %d adding char device for BBN FPGA driver with major/minor %d / %d", result, devMajor, devMinor);
+		printk(KERN_NOTICE "Error %d adding char device for FIBRE_TEST driver with major/minor %d / %d", result, devMajor, devMinor);
 		return -1;
 	}
 
 	return 0;
 }
 
-static int map_bars(struct DevInfo_t *devInfo){
+static int map_bars(struct DevInfo_t *devInfo) {
 	/*
 	Map the device memory regions into kernel virtual address space.
 	Report their sizes in devInfo.barLengths
@@ -232,7 +302,7 @@ static int map_bars(struct DevInfo_t *devInfo){
 	return 0;
 }  
 
-static int unmap_bars(struct DevInfo_t * devInfo){
+static int unmap_bars(struct DevInfo_t * devInfo) {
 	/* Release the mapped BAR memory */
 	int ct = 0;
 	for (ct = 0; ct < NUM_BARS; ct++) {
@@ -245,65 +315,64 @@ static int unmap_bars(struct DevInfo_t * devInfo){
 }
 
 static int probe(struct pci_dev *dev, const struct pci_device_id *id) {
-		/*
-		From : http://www.makelinux.net/ldd3/chp-12-sect-1
-		This function is called by the PCI core when it has a struct pci_dev that it thinks this driver wants to control.
-		A pointer to the struct pci_device_id that the PCI core used to make this decision is also passed to this function. 
-		If the PCI driver claims the struct pci_dev that is passed to it, it should initialize the device properly and return 0. 
-		If the driver does not want to claim the device, or an error occurs, it should return a negative error value.
-		*/
+	/*
+	From : http://www.makelinux.net/ldd3/chp-12-sect-1
+	This function is called by the PCI core when it has a struct pci_dev that it thinks this driver wants to control.
+	A pointer to the struct pci_device_id that the PCI core used to make this decision is also passed to this function. 
+	If the PCI driver claims the struct pci_dev that is passed to it, it should initialize the device properly and return 0. 
+	If the driver does not want to claim the device, or an error occurs, it should return a negative error value.
+	*/
 
-		//Initalize driver info 
-		struct DevInfo_t *devInfo = 0;
+	//Initalize driver info 
+	struct DevInfo_t *devInfo = 0;
 
-		printk(KERN_INFO "[FT] Entered driver probe function.\n");
-		printk(KERN_INFO "[FT] vendor = 0x%x, device = 0x%x \n", dev->vendor, dev->device); 
+	printk(KERN_INFO "[FT] Entered driver probe function.\n");
+	printk(KERN_INFO "[FT] vendor = 0x%x, device = 0x%x \n", dev->vendor, dev->device); 
 
-		//Allocate and zero memory for devInfo
+	//Allocate and zero memory for devInfo
 
-		devInfo = kzalloc(sizeof(struct DevInfo_t), GFP_KERNEL);
-		if (!devInfo) {
-			printk(KERN_WARNING "Couldn't allocate memory for device info!\n");
-			return -1;
-		}
+	devInfo = kzalloc(sizeof(struct DevInfo_t), GFP_KERNEL);
+	if (!devInfo) {
+		printk(KERN_WARNING "Couldn't allocate memory for device info!\n");
+		return -1;
+	}
 
-		//Copy in the pci device info
-		devInfo->pciDev = dev;
+	//Copy in the pci device info
+	devInfo->pciDev = dev;
 
-		//Save the device info itself into the pci driver
-		dev_set_drvdata(&dev->dev, (void*) devInfo);
+	//Save the device info itself into the pci driver
+	dev_set_drvdata(&dev->dev, (void*) devInfo);
 
-		//Setup the char device
-		setup_chrdev(devInfo);    
+	//Setup the char device
+	setup_chrdev(devInfo);    
 
-		//Initialize other fields
-		devInfo->userPID = -1;
-		devInfo->buffer = kmalloc (BUFFER_SIZE * sizeof(char), GFP_KERNEL);
+	//Initialize other fields
+	devInfo->userPID = -1;
+	devInfo->buffer = (uint32_t*) kmalloc (BUFFER_SIZE * sizeof(char), GFP_KERNEL);
 
-		//Enable the PCI
-		if (pci_enable_device(dev)){
-			printk(KERN_WARNING "[FT] pci_enable_device failed!\n");
-			return -1;
-		}
+	//Enable the PCI
+	if (pci_enable_device(dev)){
+		printk(KERN_WARNING "[FT] pci_enable_device failed!\n");
+		return -1;
+	}
 
-		pci_set_master(dev);
-		pci_request_regions(dev, DRIVER_NAME);
+	pci_set_master(dev);
+	pci_request_regions(dev, DRIVER_NAME);
 
-		//Memory map the BAR regions into virtual memory space
-		map_bars(devInfo);
+	//Memory map the BAR regions into virtual memory space
+	map_bars(devInfo);
 
-		//TODO: proper error catching and memory releasing
-		sema_init(&devInfo->sem, 1);
+	//TODO: proper error catching and memory releasing
+	sema_init(&devInfo->sem, 1);
 
-		return 0;
-
+	return 0;
 }
 
 static void remove(struct pci_dev *dev) {
-
+	//prepare device info
 	struct DevInfo_t *devInfo = 0;
 	
-	printk(KERN_INFO "[FT] Entered BBN FPGA driver remove function.\n");
+	printk(KERN_INFO "[FT] Entered FIBRE_TEST driver remove function.\n");
 	
 	devInfo = (struct DevInfo_t*) dev_get_drvdata(&dev->dev);
 	if (devInfo == 0) {
@@ -322,18 +391,18 @@ static void remove(struct pci_dev *dev) {
 	pci_release_regions(dev);
 	pci_disable_device(dev);
 
-	kfree(devInfo->buffer);
+	kfree((char*)devInfo->buffer);
 	kfree(devInfo);
 
 }
 
-static int fpga_init(void){
-	printk(KERN_INFO "[FT] Loading BBN FPGA driver!\n");
+static int fpga_init(void) {
+	printk(KERN_INFO "[FT] Loading FIBRE_TEST driver!\n");
 	return pci_register_driver(&fpgaDriver);
 }
 
-static void fpga_exit(void){
-	printk(KERN_INFO "[FT] Exiting BBN FPGA driver!\n");
+static void fpga_exit(void) {
+	printk(KERN_INFO "[FT] Exiting FIBRE_TEST driver!\n");
 	pci_unregister_driver(&fpgaDriver);
 }
 

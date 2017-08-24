@@ -1,5 +1,5 @@
 // Copyright 2017
-// Original Author: Edward Chou (prettyage.new@gmail.com)
+// Original Author: Huide Zhou (prettyage.new@gmail.com)
 
 #include <iostream>
 

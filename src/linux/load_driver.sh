@@ -2,7 +2,7 @@
 #Bash script to load FIBRE_TEST PCIe driver.  Must be run with sudo rights. 
 
 # Copyright 2017
-# Original Author: Edward Chou (prettyage.new@gmail.com)
+# Original Author: Huide Zhou (prettyage.new@gmail.com)
 
 
 # Load the FIBRE_TEST PCIe driver
