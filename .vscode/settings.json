@@ -1,0 +1,13 @@
+{
+    "files.associations": {
+        "memory": "c",
+        "vector": "c",
+        "__split_buffer": "c",
+        "bitset": "c",
+        "initializer_list": "c",
+        "iterator": "c",
+        "random": "c",
+        "string": "c",
+        "utility": "c"
+    }
+}

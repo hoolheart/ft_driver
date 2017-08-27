@@ -27,8 +27,9 @@ ssize_t fpga_write(struct file *file, const char __user *buf, size_t count, loff
 
 /* Maximum size of driver buffer (allocated with kalloc()).
  * Needed to copy data from user to kernel space */
-static const size_t BUFFER_SIZE = PAGE_SIZE;
-static const size_t DMA_SIZE    = 4*1024;
+static const size_t BUFFER_SIZE    = PAGE_SIZE;
+static const size_t DMA_PAGE_NUM_T = 2;
+static const size_t DMA_PAGE_NUM_R = 1;
 
 //Keep track of bits and bobs that we need for the driver
 struct DevInfo_t {
@@ -47,11 +48,15 @@ struct DevInfo_t {
   /* temporary buffer. If allocated, will be BUFFER_SIZE. */
   uint32_t *buffer;
 
-  /* DMA buffer. If allocated, will be DMA_SIZE. */
+  /* DMA buffer. If allocated, will be DMA_PAGE_NUM*PAGE_SIZE. */
   char *dma_tx_buffer, *dma_rx_buffer;
+  dma_addr_t dma_tx_mem, dam_rx_mem;
   
   /* Mutex for this device. */
   struct semaphore sem;
+
+  /* semaphores for interrupt */
+  struct semaphore sem_dma_tx,sem_dma_rx,sem_trigger;
   
   /* PID of process that called open() */
   int userPID;
