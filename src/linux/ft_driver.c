@@ -1,17 +1,26 @@
 // Copyright 2017
-// Original Author: Huide Zhou (prettyage.new@gmail.com)
+// Original Author: Huide Zhou <prettyage.new@gmail.com>
 
 #include "ft_driver.h"
 #include "ft_macros.h"
 #include <linux/interrupt.h>
+#include <linux/ioctl.h>
 
-MODULE_LICENSE("MIT");
-MODULE_AUTHOR("Huide Zhou <prettyage.new@gmail.com>");
+MODULE_LICENSE("Proprietary");
+//MODULE_LICENSE("MIT");
+//MODULE_AUTHOR("Huide Zhou <prettyage.new@gmail.com>");
 MODULE_DESCRIPTION("Driver for PCIe Fibre-Test board.");
 
 /* Forward Static PCI driver functions for kernel module */
 static int probe(struct pci_dev *dev, const struct pci_device_id *id);
 static void remove(struct pci_dev *dev);
+
+//fileio.c functions for device
+int fpga_open(struct inode *inode, struct file *file);
+int fpga_close(struct inode *inode, struct file *file);
+ssize_t fpga_read(struct file *file, char __user *buf, size_t count, loff_t *pos);
+ssize_t fpga_write(struct file *file, const char __user *buf, size_t count, loff_t *pos);
+int fpga_ioctl(struct inode *inode, struct file *filePtr, unsigned int cmd, unsigned long arg);
 
 // static int  init_chrdev (struct aclpci_dev *aclpci);
 
@@ -35,25 +44,9 @@ struct file_operations fileOps = {
     .owner =    THIS_MODULE,
     .read =     fpga_read,
     .write =    fpga_write,
+    .ioctl =    fpga_ioctl,
     .open =     fpga_open,
     .release =  fpga_close,
-};
-
-//IO COMMAND TYPE
-enum FPGA_IO_CMD {
-    BAR_IO = 0,
-    BAR_IO_REPEAT,
-    DMA_DATA,
-    
-    FPGA_IO_CMD_END
-};
-
-/*I/0 - should move to separate file at some point */
-struct IOCmd_t {
-    uint32_t cmd; //command word
-    uint8_t barNum; //which bar we are read/writing to
-    uint32_t devAddr; // address relative to BAR that we are read/writing to
-    void * userAddr; // virtual address in user space to read/write from
 };
 
 void write_bar0_u32(struct DevInfo_t * dev_info, uint32_t offset, uint32_t value) {
@@ -187,6 +180,107 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
             break;
         }
         case DMA_DATA: {
+            printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes data through DMA.\n", (unsigned int) count);
+            if(rwFlag) {
+                //read from DMA
+                //first mapping
+                if(devInfo->flag_dma_rx==-1) {
+                    devInfo->dma_rx_mem = dma_map_single(devInfo->pciDev, devInfo->dma_rx_buffer, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                    if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
+                        printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
+                        bytesDone = 0;
+                        break;
+                    }
+                    else {
+                        //start DMA
+                        write_bar0_u32(devInfo,0x04,(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));//set address
+                        devInfo->flag_dma_rx = 0;//prepare flag
+                        write_bar0_u32(devInfo, 0x08, 0);
+                        write_bar0_u32(devInfo, 0x28, 1);
+                    }
+                }
+                //wait for data
+                if(devInfo->flag_dma_rx==0) {
+                    wait_event_interruptible_timeout(devInfo->wait_dma_rx,(devInfo->flag_dma_rx==1),10);
+                }
+                //check data
+                if(devInfo->flag_dma_rx==1) {
+                    //unmap memory
+                    dma_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                    //get size
+                    if(count<DMA_PAGE_NUM_R*PAGE_SIZE) {
+                        bytesToTransfer = count;
+                    }
+                    else {
+                        bytesToTransfer = DMA_PAGE_NUM_R*PAGE_SIZE;
+                    }
+                    //copy data
+                    copy_to_user(iocmd.userAddr, (char*)devInfo->dma_rx_buffer, bytesToTransfer);
+                    bytesDone = bytesToTransfer;
+                    //remap
+                    devInfo->dma_rx_mem = dma_map_single(devInfo->pciDev, devInfo->dma_rx_buffer, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                    if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
+                        printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
+                        flag_dma_rx = -1;//reset flag
+                    }
+                    else {
+                        //start DMA
+                        write_bar0_u32(devInfo,0x04,(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));//set address
+                        devInfo->flag_dma_rx = 0;//prepare flag
+                        write_bar0_u32(devInfo, 0x08, 0);
+                        write_bar0_u32(devInfo, 0x28, 1);
+                    }
+                }
+                else {
+                    bytesDone = 0;
+                }
+            }
+            else {
+                //write to DMA
+                if(devInfo->flag_dma_tx) {
+                    printk(KERN_WARNING "[FT] rw_dispatcher: DAM transmit is not available!\n");
+                    bytesDone = 0;
+                }
+                else {
+                    //clear old data
+                    memset(devInfo->dma_tx_buffer,0,DMA_PAGE_NUM_T*PAGE_SIZE);
+                    //get size
+                    if(count<DMA_PAGE_NUM_T*PAGE_SIZE) {
+                        bytesToTransfer = count;
+                    }
+                    else {
+                        bytesToTransfer = DMA_PAGE_NUM_T*PAGE_SIZE;
+                    }
+                    //copy data from user to buffer
+                    copy_from_user((char*)devInfo->dma_tx_buffer, iocmd.userAddr, bytesToTransfer);
+                    //mapping DMA
+                    devInfo->dma_tx_mem = dma_map_single(devInfo->pciDev, devInfo->dma_tx_buffer, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
+                    if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_tx_mem)) {
+                        printk(KERN_WARNING "[FT] Failed to map DMA tx memory.\n");
+                        bytesDone = 0;
+                    }
+                    else {
+                        //start DMA
+                        write_bar0_u32(devInfo,0x0c,(uint32_t)(devInfo->dma_tx_mem & 0xffffffff));//set address
+                        devInfo->flag_dma_tx = 0;//prepare flag
+                        write_bar0_u32(devInfo, 0x10, 0);
+                        write_bar0_u32(devInfo, 0x28, 4);
+                        //wait
+                        if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),1000)>0) {
+                            //successful
+                            bytesDone = bytesToTransfer;
+                        }
+                        else {
+                            //failed
+                            printk(KERN_WARNING "[FT] DAM transmit time-out.\n");
+                            bytesDone = 0;
+                        }
+                        //unmap memory
+                        dma_unmap_single(devInfo->pciDev, devInfo->dma_tx_mem, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
+                        devInfo->flag_dma_tx = -1;
+                    }
+                }
+            }
             break;
         }
         default: {
@@ -207,6 +301,25 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
         return IRQ_NONE;
     }
     //handle irq
+    if(irq_v&0x8) {
+        //dma write finished
+        write_bar0_u32(devInfo,0x28,8);//clear flag
+        devInfo->flag_dma_tx = 1;
+        wake_up_interruptible(&devInfo->wait_dma_tx);//wake up writing process
+    }
+    if(irq_v&0x2) {
+        //dma read finished
+        write_bar0_u32(devInfo,0x28,2);//clear flag
+        devInfo->flag_dma_rx = 1;
+        wake_up_interruptible(&devInfo->wait_dma_rx);//wake up writing process
+    }
+    if(irq_v&0x40) {
+        //trigger
+        write_bar0_u32(devInfo,0x28,0x40);//clear flag
+        if(devInfo->userPID>0) {
+            kill(devInfo->userPID,TRIGGER_SIGNAL);//send signal
+        }
+    }
     return IRQ_HANDLED;
 }
 
@@ -226,7 +339,6 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
     filePtr->private_data = devInfo;
 
     //Record the PID of who opened the file
-    //TODO: sort out where this is used
     devInfo->userPID = current->pid;
 
     //Return semaphore
@@ -234,6 +346,32 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
 
     printk(KERN_INFO "[FT] fpga_open: Leaving function.\n");
 
+    return 0;
+}
+
+//reset FPGA
+int fpga_reset(struct DevInfo_t *devInfo) {
+    //lock driver
+    if (down_interruptible(&devInfo->sem)) {
+        printk(KERN_WARNING "[FT] fpga_close: Unable to get semaphore!\n");
+        return -1;
+    }
+
+    //reset DMA mappings
+    if(devInfo->flag_dma_rx>=0) {
+        dma_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+        devInfo->flag_dma_rx = -1;
+    }
+    if(devInfo->flag_dma_tx>=0) {
+        dma_unmap_single(devInfo->pciDev, devInfo->dma_tx_mem, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
+        devInfo->flag_dma_tx = -1;
+    }
+    //reset FPGA
+    write_bar0_u32(devInfo, 0x2C, 1);
+    write_bar0_u32(devInfo, 0x2C, 0);
+
+    //unlock file
+    up(&devInfo->sem);
     return 0;
 }
 
@@ -246,7 +384,11 @@ int fpga_close(struct inode *inode, struct file *filePtr) {
         return -1;
     }
 
-    //TODO: some checking of who is closing.
+    //some checking of who is closing.
+    if(current->pid==devInfo->userPID) {
+        devInfo->userPID = -1;
+    }
+
     up(&devInfo->sem);
 
     return 0;
@@ -260,6 +402,36 @@ ssize_t fpga_read(struct file *filePtr, char __user *buf, size_t count, loff_t *
 //Pass-through to main dispatcher
 ssize_t fpga_write(struct file *filePtr, const char __user *buf, size_t count, loff_t *pos) {
     return rw_dispatcher(filePtr, (char __user *) buf, count, false);
+}
+
+//control
+int fpga_ioctl(struct inode *inode, struct file *filePtr, unsigned int cmd, unsigned long arg) {
+    //fetch private data
+    struct DevInfo_t * devInfo = (struct DevInfo_t *)filePtr->private_data;
+    struct Bar0Cmd_t bar0_cmd;
+    uint32_t tmp;
+    //consider command
+    if(cmd==FT_RESET) {
+        //reset FPGA
+        return fpga_reset(devInfo);
+    }
+    else if(cmd==FT_READ_BAR0_U32) {
+        //read bar0
+        copy_from_user(&bar0_cmd, (void __user *) arg, sizeof(struct Bar0Cmd_t));//fetch command
+        tmp = read_bar0_u32(devInfo,bar0_cmd.addr);//read
+        copy_to_user(bar0_cmd.value, (char*)&tmp, sizeof(uint32_t));//copy to user
+        return 0
+    }
+    else if(cmd==FT_WRITE_BAR0_U32) {
+        //write bar0
+        copy_from_user(&bar0_cmd, (void __user *) arg, sizeof(struct Bar0Cmd_t));//fetch command
+        copy_from_user((char*)&tmp, bar0_cmd.value, sizeof(uint32_t));//copy from user
+        write_bar0_u32(devInfo,bar0_cmd.addr,tmp);//write
+        return 0
+    }
+    //invalid command
+    printk(KERN_WARNING "[FT] fpga_ioctl: Unknown command %u!\n", cmd);
+    return -1;
 }
 
 static int setup_chrdev(struct DevInfo_t *devInfo) {
@@ -350,9 +522,14 @@ static int enable_int(struct DevInfo_t * devInfo) {
     //try register irq
     int ret = request_irq(devInfo->pciDev->irq, ft_irq_handler, IRQF_SHARED,
         DRIVER_NAME, (void *)devInfo);
-    //clear mask if successful
     if(ret==0) {
+        //clear mask if successful
         write_bar0_u32(devInfo, 0x20, 0x7ffffffc);
+        //prepare DMA transmit variables
+        init_waitqueue_head (&devInfo->wait_dma_tx);
+        init_waitqueue_head (&devInfo->wait_dma_rx);
+        devInfo->flag_dma_tx = -1;
+        devInfo->flag_dma_rx = -1;
     }
     return ret;
 }

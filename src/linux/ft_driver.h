@@ -1,5 +1,5 @@
 // Copyright 2017
-// Original Author: Huide Zhou (prettyage.new@gmail.com)
+// Original Author: Huide Zhou <prettyage.new@gmail.com>
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -8,22 +8,12 @@
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
 #include <linux/sched.h>
-
+#include <linux/wait.h>
+#include <linux/signal.h>
 
 #define VENDOR_ID 0x10ee
 #define DEVICE_ID 0x7
-
-#define DRIVER_NAME "FIBRE_TEST"
-#define BOARD_NAME "pcie_ft1"
-#define NUM_BARS 1  //we use up to BAR0
-
-
-//fileio.c functions for device
-int fpga_open(struct inode *inode, struct file *file);
-int fpga_close(struct inode *inode, struct file *file);
-ssize_t fpga_read(struct file *file, char __user *buf, size_t count, loff_t *pos);
-ssize_t fpga_write(struct file *file, const char __user *buf, size_t count, loff_t *pos);
-
+#define NUM_BARS 1
 
 /* Maximum size of driver buffer (allocated with kalloc()).
  * Needed to copy data from user to kernel space */
@@ -55,8 +45,9 @@ struct DevInfo_t {
   /* Mutex for this device. */
   struct semaphore sem;
 
-  /* semaphores for interrupt */
-  struct semaphore sem_dma_tx,sem_dma_rx,sem_trigger;
+  /* handle of DMA transmit interrupt */
+  wait_queue_head_t wait_dma_tx, wait_dma_rx;
+  int flag_dma_tx, flag_dma_rx;
   
   /* PID of process that called open() */
   int userPID;
