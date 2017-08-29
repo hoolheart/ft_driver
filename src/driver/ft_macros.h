@@ -24,6 +24,7 @@ struct IOCmd_t {
 };
 
 //address
+#define FT_BITE             0x038//BITE
 #define CPI_FREQ_BASE       0X210//task parameters
 #define CPI_PULSE_NUM_BASE  0X230
 #define CPI_NUM_ADDR        0X250
