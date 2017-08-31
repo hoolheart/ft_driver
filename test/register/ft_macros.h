@@ -1,6 +1,6 @@
 #ifndef __FT_MACROS_H__
 #define __FT_MACROS_H__
-//#include <stdint.h>
+#include <stdint.h>
 
 //driver name
 #define DRIVER_NAME "FIBRE_TEST"

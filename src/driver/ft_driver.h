@@ -40,7 +40,7 @@ struct DevInfo_t {
 
   /* DMA buffer. If allocated, will be DMA_PAGE_NUM*PAGE_SIZE. */
   char *dma_tx_buffer, *dma_rx_buffer;
-  dma_addr_t dma_tx_mem, dam_rx_mem;
+  dma_addr_t dma_tx_mem, dma_rx_mem;
   
   /* Mutex for this device. */
   struct semaphore sem;

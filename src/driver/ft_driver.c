@@ -20,7 +20,7 @@ int fpga_open(struct inode *inode, struct file *file);
 int fpga_close(struct inode *inode, struct file *file);
 ssize_t fpga_read(struct file *file, char __user *buf, size_t count, loff_t *pos);
 ssize_t fpga_write(struct file *file, const char __user *buf, size_t count, loff_t *pos);
-int fpga_ioctl(struct inode *inode, struct file *filePtr, unsigned int cmd, unsigned long arg);
+long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg);
 
 // static int  init_chrdev (struct aclpci_dev *aclpci);
 
@@ -44,7 +44,7 @@ struct file_operations fileOps = {
     .owner =    THIS_MODULE,
     .read =     fpga_read,
     .write =    fpga_write,
-    .ioctl =    fpga_ioctl,
+    .unlocked_ioctl = fpga_ioctl,
     .open =     fpga_open,
     .release =  fpga_close,
 };
@@ -96,11 +96,11 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
             printk(KERN_WARNING "[FT] rw_dispatcher: Invalid bar number: %u!\n", iocmd.barNum);
             return -1;
         }
-        if((iocmd.devAddr>=devInfo->barLength[iocmd.barNum])) {
+        if((iocmd.devAddr>=devInfo->barLengths[iocmd.barNum])) {
             printk(KERN_WARNING "[FT] rw_dispatcher: Invalid device address %u in bar %u!\n", iocmd.devAddr, iocmd.barNum);
             return -1;
         }
-        if((iocmd.cmd==BAR_IO) && ((iocmd.devAddr+count)>=devInfo->barLength[iocmd.barNum])) {
+        if((iocmd.cmd==BAR_IO) && ((iocmd.devAddr+count)>=devInfo->barLengths[iocmd.barNum])) {
             printk(KERN_WARNING "[FT] rw_dispatcher: Invalid count %u from device address %u in bar %u!\n", (unsigned int)count, iocmd.devAddr, iocmd.barNum);
             return -1;
         }
@@ -221,7 +221,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                     devInfo->dma_rx_mem = dma_map_single(devInfo->pciDev, devInfo->dma_rx_buffer, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
                     if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
                         printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
-                        flag_dma_rx = -1;//reset flag
+                        devInfo->flag_dma_rx = -1;//reset flag
                     }
                     else {
                         //start DMA
@@ -317,7 +317,7 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
         //trigger
         write_bar0_u32(devInfo,0x28,0x40);//clear flag
         if(devInfo->userPID>0) {
-            kill(devInfo->userPID,TRIGGER_SIGNAL);//send signal
+            //kill(devInfo->userPID,TRIGGER_SIGNAL);//send signal
         }
     }
     return IRQ_HANDLED;
@@ -405,7 +405,7 @@ ssize_t fpga_write(struct file *filePtr, const char __user *buf, size_t count, l
 }
 
 //control
-int fpga_ioctl(struct inode *inode, struct file *filePtr, unsigned int cmd, unsigned long arg) {
+long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg) {
     //fetch private data
     struct DevInfo_t * devInfo = (struct DevInfo_t *)filePtr->private_data;
     struct Bar0Cmd_t bar0_cmd;
@@ -420,14 +420,14 @@ int fpga_ioctl(struct inode *inode, struct file *filePtr, unsigned int cmd, unsi
         copy_from_user(&bar0_cmd, (void __user *) arg, sizeof(struct Bar0Cmd_t));//fetch command
         tmp = read_bar0_u32(devInfo,bar0_cmd.addr);//read
         copy_to_user(bar0_cmd.value, (char*)&tmp, sizeof(uint32_t));//copy to user
-        return 0
+        return 0;
     }
     else if(cmd==FT_WRITE_BAR0_U32) {
         //write bar0
         copy_from_user(&bar0_cmd, (void __user *) arg, sizeof(struct Bar0Cmd_t));//fetch command
         copy_from_user((char*)&tmp, bar0_cmd.value, sizeof(uint32_t));//copy from user
         write_bar0_u32(devInfo,bar0_cmd.addr,tmp);//write
-        return 0
+        return 0;
     }
     //invalid command
     printk(KERN_WARNING "[FT] fpga_ioctl: Unknown command %u!\n", cmd);
@@ -542,7 +542,7 @@ static int disable_int(struct DevInfo_t * devInfo) {
 
 static int prepare_dma_buffer(struct DevInfo_t * devInfo) {
     //mask 32
-    if(pci_set_dma_mask(pdev, DMA_BIT_MASK(32))==0) {
+    if(pci_set_dma_mask(devInfo->pciDev, DMA_BIT_MASK(32))==0) {
         pci_set_consistent_dma_mask(devInfo->pciDev, DMA_BIT_MASK(32));
     }
     else {
@@ -661,7 +661,7 @@ static void remove(struct pci_dev *dev) {
     unmap_bars(devInfo);
 
     //TODO: does order matter here?
-    pci_clear_master(pdev);
+    pci_clear_master(dev);
     pci_release_regions(dev);
     pci_disable_device(dev);
 

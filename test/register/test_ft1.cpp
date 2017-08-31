@@ -2,19 +2,15 @@
 // Original Author: Huide Zhou <prettyage.new@gmail.com>
 
 #include <iostream>
-
-#include <random>
-#include <chrono>
-#include <vector>
+using namespace std;
 
 //Use Linux file functions for the device
+#include <sys/ioctl.h>
 #include <fcntl.h>
-#include <unistd.h> // opening flags 
+#include <unistd.h> // opening flags
+#include <stdint.h>
 
-#include "../../src/driver/ft_macros.h"
-
-using std::cout;
-using std::endl;
+#include "ft_macros.h"
 
 void test_bite(int FID) {
     //prepare iocmd
@@ -24,11 +20,11 @@ void test_bite(int FID) {
     read(FID, &iocmd, sizeof(uint32_t));
     //print
     cout << "Using read interface" << endl;
-    cout << "PCI-e state: " << (tmp&0x10000)?"OK":"Error" << endl;
-    cout << "DDR2 state: " << (tmp&0x20000)?"OK":"Error" << endl;
+    cout << "PCI-e state: " << ((tmp&0x10000)?"OK":"Error") << endl;
+    cout << "DDR2 state: " << ((tmp&0x20000)?"OK":"Error") << endl;
     for (int i=0;i<4;i++) {
-        cout << "Fibre Reset " << i+1 << ": " << (tmp&(1<<(20+i)))?"OK":"Error" << endl;
-        cout << "Fibre Signal " << i+1 << ": " << (tmp&(1<<(24+i)))?"ON":"OFF" << endl;
+        cout << "Fibre Reset " << i+1 << ": " << ((tmp&(1<<(20+i)))?"OK":"Error") << endl;
+        cout << "Fibre Signal " << i+1 << ": " << ((tmp&(1<<(24+i)))?"ON":"OFF") << endl;
     }
     //prepare Bar0Cmd
     Bar0Cmd_t barCmd = {FT_BITE,&tmp};
@@ -36,11 +32,11 @@ void test_bite(int FID) {
     ioctl(FID,FT_READ_BAR0_U32,&barCmd);
     //print
     cout << "Using ioctl interface" << endl;
-    cout << "PCI-e state: " << (tmp&0x10000)?"OK":"Error" << endl;
-    cout << "DDR2 state: " << (tmp&0x20000)?"OK":"Error" << endl;
+    cout << "PCI-e state: " << ((tmp&0x10000)?"OK":"Error") << endl;
+    cout << "DDR2 state: " << ((tmp&0x20000)?"OK":"Error") << endl;
     for (int i=0;i<4;i++) {
-        cout << "Fibre Reset " << i+1 << ": " << (tmp&(1<<(20+i)))?"OK":"Error" << endl;
-        cout << "Fibre Signal " << i+1 << ": " << (tmp&(1<<(24+i)))?"ON":"OFF" << endl;
+        cout << "Fibre Reset " << i+1 << ": " << ((tmp&(1<<(20+i)))?"OK":"Error") << endl;
+        cout << "Fibre Signal " << i+1 << ": " << ((tmp&(1<<(24+i)))?"ON":"OFF") << endl;
     }
 }
 
@@ -82,10 +78,10 @@ int main(int argc, char const *argv[]) {
         cout << "Could not open device handle!" << endl;
         return -1;
     }
-    
+
     //testing
-    test_bite();
-    test_cpi_freq();
+    test_bite(FID);
+    test_cpi_freq(FID);
 
     //close file
     close(FID);

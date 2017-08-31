@@ -73,7 +73,7 @@ int main(int argc, char const *argv[]) {
 			remaining -= FT_ReceiveSynData(synRecv,remaining);
 		}
 		cnt++;
-		Sleep(5);
+		sleep(5);
 	}
 	printf("Received total %u synchronization data\n",512-remaining);
 
@@ -94,7 +94,7 @@ int main(int argc, char const *argv[]) {
 	}
 	printf("Succeed to set D11 output\n");
 	//read from TTL port D9 
-	UINT32 val;
+	unsigned int val;
 	if (dw = FT_ReadTTLPort(9,&val), dw != FT_STATUS_SUCCESS) {
 		printf("Failed to read D9 (return value %u)\n", dw);
 		return 1;
