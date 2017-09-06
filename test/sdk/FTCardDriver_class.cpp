@@ -591,11 +591,11 @@ bool FTCardDriver::writeBAR0(unsigned int offset, unsigned int in)
         pthread_mutex_lock(&d->mutexDev);//lock mutex
         //prepare Bar0Cmd
         uint32_t tmp = (uint32_t)in;
-        Bar0Cmd_t barCmd = {(uint32_t)offset,&tmp};
+        IOCmd_t iocmd = {BAR_IO,0,(uint32_t)offset,(void *)&tmp};
         //write
-        int dw = ioctl(fid,FT_WRITE_BAR0_U32,&barCmd);
+        int dw = write(fid, &iocmd, sizeof(uint32_t));
         pthread_mutex_unlock(&d->mutexDev);//release mutex
-        return (dw == 0);
+        return (dw == sizeof(uint32_t));
     }
     return false;
 }
@@ -662,7 +662,7 @@ void *FTCardDriver::receiveSyn(void *lpara)
                 pthread_mutex_unlock(&pDriver->d->mutexSyn);//release data
             }
         }
-        usleep(10*1000);
+        usleep(100*1000);
     }
 
     return 0;

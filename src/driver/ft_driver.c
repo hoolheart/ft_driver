@@ -5,6 +5,7 @@
 #include "ft_macros.h"
 #include <linux/interrupt.h>
 #include <linux/ioctl.h>
+#include <linux/delay.h>
 
 MODULE_LICENSE("Proprietary");
 //MODULE_LICENSE("MIT");
@@ -202,7 +203,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                 }
                 //wait for data
                 if(devInfo->flag_dma_rx==0) {
-                    wait_event_interruptible_timeout(devInfo->wait_dma_rx,(devInfo->flag_dma_rx==1),10);
+                    wait_event_interruptible_timeout(devInfo->wait_dma_rx,(devInfo->flag_dma_rx==1),1000);
                 }
                 //check data
                 if(devInfo->flag_dma_rx==1) {
@@ -267,7 +268,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                         write_bar0_u32(devInfo, 0x10, 0);
                         write_bar0_u32(devInfo, 0x28, 4);
                         //wait
-                        if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),10*1000)>0) {
+                        if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),100*1000)>0) {
                             //successful
                             bytesDone = bytesToTransfer;
                         }
@@ -297,12 +298,12 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
     //fetch private data
     struct DevInfo_t * devInfo = (struct DevInfo_t *)arg;
     uint32_t irq_v = read_bar0_u32(devInfo,0x28);//get interrupt vector
-    printk(KERN_INFO "[FT] ft_irq_handler: 0x%x from irq %d.\n",irq_v,irq);
     //check irq
     if((irq_v&0x4A)==0) {
         return IRQ_NONE;
     }
     //handle irq
+    printk(KERN_INFO "[FT] ft_irq_handler: 0x%x from irq %d.\n",irq_v,irq);
     if(irq_v&0x8) {
         //dma write finished
         write_bar0_u32(devInfo,0x28,8);//clear flag
@@ -323,6 +324,25 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
         }
     }
     return IRQ_HANDLED;
+}
+
+static int enable_int(struct DevInfo_t * devInfo) {
+    //try register irq
+    int ret = request_irq(devInfo->pciDev->irq, ft_irq_handler, IRQF_SHARED, DRIVER_NAME, (void *)devInfo);
+    if(ret==0) {
+        //clear mask if successful
+        write_bar0_u32(devInfo, 0x20, 0x7ffffffc);
+        //prepare DMA transmit variables
+        devInfo->flag_dma_tx = -1;
+        devInfo->flag_dma_rx = -1;
+    }
+    return ret;
+}
+
+static int disable_int(struct DevInfo_t * devInfo) {
+    //try unregister irq
+    free_irq(devInfo->pciDev->irq, (void*)devInfo);
+    return 0;
 }
 
 int fpga_open(struct inode *inode, struct file *filePtr) {
@@ -351,15 +371,48 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
     return 0;
 }
 
+int fpga_reprobe(struct DevInfo_t *devInfo) {
+    printk(KERN_INFO "[FT] reprobe: entering.\n");
+
+    //set pci master
+    pci_set_master(devInfo->pciDev);
+    
+    //initialize send command
+    write_bar0_u32(devInfo, SEND_ADDR, 0);
+
+    //mask 32
+    if(pci_set_dma_mask(devInfo->pciDev, DMA_BIT_MASK(32))==0) {
+        pci_set_consistent_dma_mask(devInfo->pciDev, DMA_BIT_MASK(32));
+    }
+    else {
+        return -1;
+    }
+
+    //dma size
+    write_bar0_u32(devInfo,0x1c,PAGE_SIZE*DMA_PAGE_NUM_T);//set size
+    write_bar0_u32(devInfo,0x18,PAGE_SIZE*DMA_PAGE_NUM_R);//set size
+
+    //enable interrupt
+    if(enable_int(devInfo)!=0) {
+        printk(KERN_WARNING "[FT] enable interrupt failed!\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 //reset FPGA
 int fpga_reset(struct DevInfo_t *devInfo) {
     printk(KERN_INFO "[FT] fpga_reset: Entering function.\n");
 
     //lock driver
     if (down_interruptible(&devInfo->sem)) {
-        printk(KERN_WARNING "[FT] fpga_close: Unable to get semaphore!\n");
+        printk(KERN_WARNING "[FT] fpga_reset: Unable to get semaphore!\n");
         return -1;
     }
+
+    //free irq first
+    disable_int(devInfo);
 
     //reset DMA mappings
     if(devInfo->flag_dma_rx>=0) {
@@ -372,10 +425,18 @@ int fpga_reset(struct DevInfo_t *devInfo) {
     }
     //reset FPGA
     write_bar0_u32(devInfo, 0x2C, 1);
+    msleep(1);
     write_bar0_u32(devInfo, 0x2C, 0);
 
     //unlock file
     up(&devInfo->sem);
+
+    //re-probe
+    if (fpga_reprobe(devInfo)!=0) {
+        printk(KERN_WARNING "[FT] fpga_reset: Unable to reprobe device!\n");
+        return -1;
+    }
+
     printk(KERN_INFO "[FT] fpga_reset: Leaving function.\n");
     return 0;
 }
@@ -530,29 +591,6 @@ static int unmap_bars(struct DevInfo_t * devInfo) {
     return 0;
 }
 
-static int enable_int(struct DevInfo_t * devInfo) {
-    //try register irq
-    int ret = -1;
-    enable_irq(devInfo->pciDev->irq);
-    ret = request_irq(devInfo->pciDev->irq, ft_irq_handler, IRQF_SHARED, DRIVER_NAME, (void *)devInfo);
-    if(ret==0) {
-        //clear mask if successful
-        write_bar0_u32(devInfo, 0x20, 0x7ffffffc);
-        //prepare DMA transmit variables
-        init_waitqueue_head (&devInfo->wait_dma_tx);
-        init_waitqueue_head (&devInfo->wait_dma_rx);
-        devInfo->flag_dma_tx = -1;
-        devInfo->flag_dma_rx = -1;
-    }
-    return ret;
-}
-
-static int disable_int(struct DevInfo_t * devInfo) {
-    //try unregister irq
-    free_irq(devInfo->pciDev->irq, (void*)devInfo);
-    return 0;
-}
-
 static int prepare_dma_buffer(struct DevInfo_t * devInfo) {
     //mask 32
     if(pci_set_dma_mask(devInfo->pciDev, DMA_BIT_MASK(32))==0) {
@@ -636,6 +674,10 @@ static int probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return -1;
     }
 
+    //prepare wait queue
+    init_waitqueue_head (&devInfo->wait_dma_tx);
+    init_waitqueue_head (&devInfo->wait_dma_rx);
+
     //enable interrupt
     if(enable_int(devInfo)!=0) {
         printk(KERN_WARNING "[FT] enable interrupt failed!\n");
@@ -700,3 +742,4 @@ static void fpga_exit(void) {
 
 module_init(fpga_init);
 module_exit(fpga_exit);
+

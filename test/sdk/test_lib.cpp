@@ -1,6 +1,7 @@
 #include "FTCardLib.h"
 #include <stdio.h>
 #include <unistd.h>
+#include <stdint.h>
 
 int main(int argc, char const *argv[]) {
 
@@ -39,10 +40,10 @@ int main(int argc, char const *argv[]) {
 	printf("Succeed to start task\n");
 
     //step 5: send fibre data
-	unsigned short pData[2048] = {0};//prepare
+	uint16_t pData[2048] = {0};//prepare
 	pData[0] = 0x7fff; pData[1] = 0xbc1c; pData[2] = 0xaaaa; pData[3] = 0xbbbb; pData[4] = 0x3c1c; pData[5] = 0x7fff; //add header
 	for(int i=6;i<2048-6;i++) {
-		pData[i] = 1024-(i-6)%1024;//fill content
+	    pData[i] = 1024-(i-6)%1024;//fill content
     }
     for(int index=0;index<6;index++) {//set tail
         pData[2048-1-index] = pData[index];
@@ -61,9 +62,16 @@ int main(int argc, char const *argv[]) {
 			remaining -= FT_ReceiveFibreData(buffer+16*1024-remaining,remaining);
 		}
 		cnt++;
-		usleep(1000);
+		usleep(10*1000);
 	}
 	printf("Received total %u fibre data\n",16*1024-remaining);
+	if((16*1024-remaining)>0) {
+		uint16_t *recvData = (uint16_t*)buffer;
+		printf("10 Received data\n");
+		for(int i=0;i<10;i++) {
+			printf("0x%x\n",recvData[i]);
+		}
+	}
 
     //step 7: receive synchronized serial port data
 	unsigned char synRecv[512]; remaining = 512; cnt = 0;
@@ -73,7 +81,7 @@ int main(int argc, char const *argv[]) {
 			remaining -= FT_ReceiveSynData(synRecv,remaining);
 		}
 		cnt++;
-		sleep(5);
+		usleep(5000);
 	}
 	printf("Received total %u synchronization data\n",512-remaining);
 

@@ -1,14 +1,14 @@
-#include "FTCardDriver.h"
+#include "FTCardLib.h"
 #include "FTCardDriver_class.h"
 
 unsigned int CALL_METHOD FT_OpenDevice()
 {
-	return FTCardDriver::getInstance()->open();
+	return FTCardDriver::getInstance()->open_device();
 }
 
 unsigned int CALL_METHOD FT_CloseDevice()
 {
-	return FTCardDriver::getInstance()->close();
+	return FTCardDriver::getInstance()->close_device();
 }
 
 unsigned int CALL_METHOD FT_ResetDevice()
