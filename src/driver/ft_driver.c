@@ -45,6 +45,7 @@ struct file_operations fileOps = {
     .read =     fpga_read,
     .write =    fpga_write,
     .unlocked_ioctl = fpga_ioctl,
+    .compat_ioctl   = fpga_ioctl,
     .open =     fpga_open,
     .release =  fpga_close,
 };
@@ -72,7 +73,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
 
     //Read the command from the buffer
     struct IOCmd_t iocmd; 
-    void * startAddr;
+    void * startAddr = 0;
 
     size_t bytesDone = 0;
     size_t bytesToTransfer = 0;
@@ -185,7 +186,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                 //read from DMA
                 //first mapping
                 if(devInfo->flag_dma_rx==-1) {
-                    devInfo->dma_rx_mem = dma_map_single(devInfo->pciDev, devInfo->dma_rx_buffer, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                    devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
                     if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
                         printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
                         bytesDone = 0;
@@ -206,7 +207,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                 //check data
                 if(devInfo->flag_dma_rx==1) {
                     //unmap memory
-                    dma_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                    pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
                     //get size
                     if(count<DMA_PAGE_NUM_R*PAGE_SIZE) {
                         bytesToTransfer = count;
@@ -218,7 +219,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                     copy_to_user(iocmd.userAddr, (char*)devInfo->dma_rx_buffer, bytesToTransfer);
                     bytesDone = bytesToTransfer;
                     //remap
-                    devInfo->dma_rx_mem = dma_map_single(devInfo->pciDev, devInfo->dma_rx_buffer, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                    devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
                     if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
                         printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
                         devInfo->flag_dma_rx = -1;//reset flag
@@ -237,7 +238,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
             }
             else {
                 //write to DMA
-                if(devInfo->flag_dma_tx) {
+                if(devInfo->flag_dma_tx>=0) {
                     printk(KERN_WARNING "[FT] rw_dispatcher: DAM transmit is not available!\n");
                     bytesDone = 0;
                 }
@@ -254,7 +255,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                     //copy data from user to buffer
                     copy_from_user((char*)devInfo->dma_tx_buffer, iocmd.userAddr, bytesToTransfer);
                     //mapping DMA
-                    devInfo->dma_tx_mem = dma_map_single(devInfo->pciDev, devInfo->dma_tx_buffer, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
+                    devInfo->dma_tx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_tx_buffer, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
                     if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_tx_mem)) {
                         printk(KERN_WARNING "[FT] Failed to map DMA tx memory.\n");
                         bytesDone = 0;
@@ -266,17 +267,17 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                         write_bar0_u32(devInfo, 0x10, 0);
                         write_bar0_u32(devInfo, 0x28, 4);
                         //wait
-                        if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),1000)>0) {
+                        if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),10*1000)>0) {
                             //successful
                             bytesDone = bytesToTransfer;
                         }
                         else {
                             //failed
-                            printk(KERN_WARNING "[FT] DAM transmit time-out.\n");
+                            printk(KERN_WARNING "[FT] DMA transmit time-out.\n");
                             bytesDone = 0;
                         }
                         //unmap memory
-                        dma_unmap_single(devInfo->pciDev, devInfo->dma_tx_mem, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
+                        pci_unmap_single(devInfo->pciDev, devInfo->dma_tx_mem, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
                         devInfo->flag_dma_tx = -1;
                     }
                 }
@@ -296,6 +297,7 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
     //fetch private data
     struct DevInfo_t * devInfo = (struct DevInfo_t *)arg;
     uint32_t irq_v = read_bar0_u32(devInfo,0x28);//get interrupt vector
+    printk(KERN_INFO "[FT] ft_irq_handler: 0x%x from irq %d.\n",irq_v,irq);
     //check irq
     if((irq_v&0x4A)==0) {
         return IRQ_NONE;
@@ -351,6 +353,8 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
 
 //reset FPGA
 int fpga_reset(struct DevInfo_t *devInfo) {
+    printk(KERN_INFO "[FT] fpga_reset: Entering function.\n");
+
     //lock driver
     if (down_interruptible(&devInfo->sem)) {
         printk(KERN_WARNING "[FT] fpga_close: Unable to get semaphore!\n");
@@ -359,11 +363,11 @@ int fpga_reset(struct DevInfo_t *devInfo) {
 
     //reset DMA mappings
     if(devInfo->flag_dma_rx>=0) {
-        dma_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+        pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
         devInfo->flag_dma_rx = -1;
     }
     if(devInfo->flag_dma_tx>=0) {
-        dma_unmap_single(devInfo->pciDev, devInfo->dma_tx_mem, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
+        pci_unmap_single(devInfo->pciDev, devInfo->dma_tx_mem, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
         devInfo->flag_dma_tx = -1;
     }
     //reset FPGA
@@ -372,12 +376,15 @@ int fpga_reset(struct DevInfo_t *devInfo) {
 
     //unlock file
     up(&devInfo->sem);
+    printk(KERN_INFO "[FT] fpga_reset: Leaving function.\n");
     return 0;
 }
 
 int fpga_close(struct inode *inode, struct file *filePtr) {
 
-    struct DevInfo_t * devInfo = (struct DevInfo_t *)filePtr->private_data;
+    struct DevInfo_t * devInfo = 0;
+    devInfo = (struct DevInfo_t *)filePtr->private_data;
+    printk(KERN_INFO "[FT] fpga_close: Entering function.\n");
 
     if (down_interruptible(&devInfo->sem)) {
         printk(KERN_WARNING "[FT] fpga_close: Unable to get semaphore!\n");
@@ -390,6 +397,7 @@ int fpga_close(struct inode *inode, struct file *filePtr) {
     }
 
     up(&devInfo->sem);
+    printk(KERN_INFO "[FT] fpga_close: Entering function.\n");
 
     return 0;
 }
@@ -407,9 +415,11 @@ ssize_t fpga_write(struct file *filePtr, const char __user *buf, size_t count, l
 //control
 long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg) {
     //fetch private data
-    struct DevInfo_t * devInfo = (struct DevInfo_t *)filePtr->private_data;
+    struct DevInfo_t * devInfo = 0;
     struct Bar0Cmd_t bar0_cmd;
     uint32_t tmp;
+    printk(KERN_INFO "[FT] fpga_ioctl: Entering function with command %u.\n",cmd);
+    devInfo = (struct DevInfo_t *)filePtr->private_data;
     //consider command
     if(cmd==FT_RESET) {
         //reset FPGA
@@ -420,6 +430,7 @@ long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg) {
         copy_from_user(&bar0_cmd, (void __user *) arg, sizeof(struct Bar0Cmd_t));//fetch command
         tmp = read_bar0_u32(devInfo,bar0_cmd.addr);//read
         copy_to_user(bar0_cmd.value, (char*)&tmp, sizeof(uint32_t));//copy to user
+        printk(KERN_INFO "[FT] fpga_ioctl: read %u from %u.\n", tmp, bar0_cmd.addr);
         return 0;
     }
     else if(cmd==FT_WRITE_BAR0_U32) {
@@ -427,6 +438,7 @@ long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg) {
         copy_from_user(&bar0_cmd, (void __user *) arg, sizeof(struct Bar0Cmd_t));//fetch command
         copy_from_user((char*)&tmp, bar0_cmd.value, sizeof(uint32_t));//copy from user
         write_bar0_u32(devInfo,bar0_cmd.addr,tmp);//write
+        printk(KERN_INFO "[FT] fpga_ioctl: write %u to %u.\n", tmp, bar0_cmd.addr);
         return 0;
     }
     //invalid command
@@ -520,8 +532,9 @@ static int unmap_bars(struct DevInfo_t * devInfo) {
 
 static int enable_int(struct DevInfo_t * devInfo) {
     //try register irq
-    int ret = request_irq(devInfo->pciDev->irq, ft_irq_handler, IRQF_SHARED,
-        DRIVER_NAME, (void *)devInfo);
+    int ret = -1;
+    enable_irq(devInfo->pciDev->irq);
+    ret = request_irq(devInfo->pciDev->irq, ft_irq_handler, IRQF_SHARED, DRIVER_NAME, (void *)devInfo);
     if(ret==0) {
         //clear mask if successful
         write_bar0_u32(devInfo, 0x20, 0x7ffffffc);
@@ -549,10 +562,10 @@ static int prepare_dma_buffer(struct DevInfo_t * devInfo) {
         return -1;
     }
     //dma for transfer data to device
-    devInfo->dma_tx_buffer = __get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_NUM_T);//allocate memory
+    devInfo->dma_tx_buffer = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_NUM_T);//allocate memory
     write_bar0_u32(devInfo,0x1c,PAGE_SIZE*DMA_PAGE_NUM_T);//set size
     //dma for receive data from device
-    devInfo->dma_rx_buffer = __get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_NUM_R);//allocate memory
+    devInfo->dma_rx_buffer = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_NUM_R);//allocate memory
     write_bar0_u32(devInfo,0x18,PAGE_SIZE*DMA_PAGE_NUM_R);//set size
     return 0;
 }
@@ -560,6 +573,7 @@ static int prepare_dma_buffer(struct DevInfo_t * devInfo) {
 static int release_dma_buffer(struct DevInfo_t * devInfo) {
     free_pages ((unsigned long) devInfo->dma_tx_buffer, DMA_PAGE_NUM_T);
     free_pages ((unsigned long) devInfo->dma_rx_buffer, DMA_PAGE_NUM_R);
+    return 0;
 }
 
 static int probe(struct pci_dev *dev, const struct pci_device_id *id) {
@@ -573,7 +587,6 @@ static int probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     //Initalize driver info 
     struct DevInfo_t *devInfo = 0;
-    int ret = 0;
 
     printk(KERN_INFO "[FT] Entered driver probe function.\n");
     printk(KERN_INFO "[FT] vendor = 0x%x, device = 0x%x \n", dev->vendor, dev->device); 
@@ -648,19 +661,24 @@ static void remove(struct pci_dev *dev) {
     }
 
     //Clean up the char device
+    printk(KERN_INFO "[FT] cleanup char device.\n");
     cdev_del(&devInfo->cdev);
     unregister_chrdev_region(devInfo->cdevNum, 1);
     
     //free irq
+    printk(KERN_INFO "[FT] Disable interrupt.\n");
     disable_int(devInfo);
 
     //release dma memory
+    printk(KERN_INFO "[FT] Release DMA buffer.\n");
     release_dma_buffer(devInfo);
 
     //Release memory
+    printk(KERN_INFO "[FT] Unmap bars.\n");
     unmap_bars(devInfo);
 
     //TODO: does order matter here?
+    printk(KERN_INFO "[FT] Clear master.\n");
     pci_clear_master(dev);
     pci_release_regions(dev);
     pci_disable_device(dev);

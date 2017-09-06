@@ -7,10 +7,15 @@
 
 # Load the FIBRE_TEST PCIe driver
 if [ `lsmod | grep -o ft_driver` ]; then
-    echo "FIBRE_TEST driver has already been loaded. Doing nothing."
+    echo "remove FIBRE_TEST driver first."
+    rmmod ft_driver.ko
+    echo "reload driver then."
+    insmod ft_driver.ko
+    lsmod | grep FIBRE_TEST
+else
+    echo "No FIBRE_TEST driver loaded."
     exit
 fi
-insmod ft_driver.ko
 
 #Find what major device number was assigned from /proc/devices
 majorNum=$( awk '{ if ($2 ~ /pcie_ft1/) print $1}' /proc/devices )
