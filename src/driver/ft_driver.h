@@ -19,7 +19,7 @@
  * Needed to copy data from user to kernel space */
 static const size_t BUFFER_SIZE    = PAGE_SIZE;
 static const size_t DMA_PAGE_NUM_T = 2;
-static const size_t DMA_PAGE_NUM_R = 1;
+static const size_t DMA_PAGE_NUM_R = 1<<3;
 
 //Keep track of bits and bobs that we need for the driver
 struct DevInfo_t {
@@ -39,7 +39,8 @@ struct DevInfo_t {
   uint32_t *buffer;
 
   /* DMA buffer. If allocated, will be DMA_PAGE_NUM*PAGE_SIZE. */
-  char *dma_tx_buffer, *dma_rx_buffer;
+  char *dma_tx_buffer, *dma_rx_buffer[2];
+  int dma_rx_index;
   dma_addr_t dma_tx_mem, dma_rx_mem;
   
   /* Mutex for this device. */
