@@ -694,21 +694,21 @@ static int prepare_dma_buffer(struct DevInfo_t * devInfo) {
     }
     //dma for transfer data to device
     printk(KERN_INFO "[FT] DMA transmit buffer size: %u.\n", PAGE_SIZE*DMA_PAGE_NUM_T);
-    devInfo->dma_tx_buffer = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_NUM_T);//allocate memory
+    devInfo->dma_tx_buffer = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_ODR_T);//allocate memory
     write_bar0_u32(devInfo,0x1c,PAGE_SIZE*DMA_PAGE_NUM_T);//set size
     //dma for receive data from device
     printk(KERN_INFO "[FT] DMA receive buffer size: %u.\n", PAGE_SIZE*DMA_PAGE_NUM_R);
-    devInfo->dma_rx_buffer[0] = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_NUM_R);//allocate memory
-    devInfo->dma_rx_buffer[1] = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_NUM_R);
+    devInfo->dma_rx_buffer[0] = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_ODR_R);//allocate memory
+    devInfo->dma_rx_buffer[1] = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_ODR_R);
     devInfo->dma_rx_index = 0;
     write_bar0_u32(devInfo,0x18,PAGE_SIZE*DMA_PAGE_NUM_R);//set size
     return 0;
 }
 
 static int release_dma_buffer(struct DevInfo_t * devInfo) {
-    free_pages ((unsigned long) devInfo->dma_tx_buffer, DMA_PAGE_NUM_T);
-    free_pages ((unsigned long) devInfo->dma_rx_buffer[0], DMA_PAGE_NUM_R);
-    free_pages ((unsigned long) devInfo->dma_rx_buffer[1], DMA_PAGE_NUM_R);
+    free_pages ((unsigned long) devInfo->dma_tx_buffer, DMA_PAGE_ODR_T);
+    free_pages ((unsigned long) devInfo->dma_rx_buffer[0], DMA_PAGE_ODR_R);
+    free_pages ((unsigned long) devInfo->dma_rx_buffer[1], DMA_PAGE_ODR_R);
     return 0;
 }
 

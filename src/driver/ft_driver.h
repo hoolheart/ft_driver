@@ -18,8 +18,10 @@
 /* Maximum size of driver buffer (allocated with kalloc()).
  * Needed to copy data from user to kernel space */
 static const size_t BUFFER_SIZE    = PAGE_SIZE;
-static const size_t DMA_PAGE_NUM_T = 2;
-static const size_t DMA_PAGE_NUM_R = 1<<3;
+#define DMA_PAGE_ODR_T 1
+static const size_t DMA_PAGE_NUM_T = 1<<DMA_PAGE_ODR_T;
+#define DMA_PAGE_ODR_R 3
+static const size_t DMA_PAGE_NUM_R = 1<<DMA_PAGE_ODR_R;
 
 //Keep track of bits and bobs that we need for the driver
 struct DevInfo_t {
