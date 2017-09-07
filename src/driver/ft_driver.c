@@ -284,9 +284,8 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                 }
                 //wait for data
                 if(devInfo->flag_dma_rx==0) {
-                    //wait_event_interruptible_timeout(devInfo->wait_dma_rx,(devInfo->flag_dma_rx==1),1000);
-                    //wait_for_flag(&devInfo->flag_dma_rx,1,10,1000);
-                    wait_for_dma_rx(devInfo,1,1000);
+                    wait_event_interruptible_timeout(devInfo->wait_dma_rx,(devInfo->flag_dma_rx==1),1000);
+                    //wait_for_dma_rx(devInfo,1,1000);
                 }
                 //check data
                 if(devInfo->flag_dma_rx==1) {
@@ -354,9 +353,8 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                         write_bar0_u32(devInfo, 0x28, 4);
                         printk(KERN_INFO "[FT] Start DMA tx\n");
                         //wait
-                        //if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),10*1000)>0) {
-                        //if(wait_for_flag(&devInfo->flag_dma_tx,1,100,1000)>0) {
-                        if(wait_for_dma_tx(devInfo,1,1000*100)>0) {
+                        if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),10*1000)>0) {
+                        //if(wait_for_dma_tx(devInfo,1,1000*100)>0) {
                             //successful
                             bytesDone = bytesToTransfer;
                         }
@@ -420,7 +418,7 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
 static int enable_int(struct DevInfo_t * devInfo) {
     //try register irq
     int ret = 0;
-    //ret = request_irq(devInfo->pciDev->irq, ft_irq_handler, IRQF_DISABLED, DRIVER_NAME, (void *)devInfo);
+    ret = request_irq(devInfo->pciDev->irq, ft_irq_handler, IRQF_SHARED, DRIVER_NAME, (void *)devInfo);
     if(ret==0) {
         //clear mask if successful
         write_bar0_u32(devInfo, 0x20, 0x7ffffffc);
@@ -433,7 +431,7 @@ static int enable_int(struct DevInfo_t * devInfo) {
 
 static int disable_int(struct DevInfo_t * devInfo) {
     //try unregister irq
-    //free_irq(devInfo->pciDev->irq, (void*)devInfo);
+    free_irq(devInfo->pciDev->irq, (void*)devInfo);
     return 0;
 }
 
