@@ -83,7 +83,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
 
     struct DevInfo_t * devInfo = (struct DevInfo_t *) filePtr->private_data;
 
-    printk(KERN_INFO "[FT] rw_dispatcher: Entering function.\n");
+    //printk(KERN_INFO "[FT] rw_dispatcher: Entering function.\n");
 
     //fetch command
     copy_from_user(&iocmd, (void __user *) buf, sizeof(iocmd));
@@ -119,8 +119,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
     //operate depending command TYPE
     switch (iocmd.cmd) {
         case BAR_IO: {
-            printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes from user address 0x%p to device address %u.\n",
-                   (unsigned int) count, iocmd.userAddr, iocmd.devAddr);
+            //printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes from user address 0x%p to device address %u.\n", (unsigned int) count, iocmd.userAddr, iocmd.devAddr);
             while (count > 0){
                 bytesToTransfer = (count > BUFFER_SIZE) ? BUFFER_SIZE : count;
                 remainSize = (bytesToTransfer+3)/4;
@@ -150,8 +149,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
             break;
         }
         case BAR_IO_REPEAT: {
-            printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes repeatly from user address 0x%p to device address %u.\n",
-                   (unsigned int) count, iocmd.userAddr, iocmd.devAddr);
+            //printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes repeatly from user address 0x%p to device address %u.\n", (unsigned int) count, iocmd.userAddr, iocmd.devAddr);
             while (count > 0){
                 bytesToTransfer = (count > BUFFER_SIZE) ? BUFFER_SIZE : count;
                 remainSize = (bytesToTransfer+3)/4;
@@ -182,7 +180,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
             break;
         }
         case DMA_DATA: {
-            printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes data through DMA.\n", (unsigned int) count);
+            //printk(KERN_INFO "[FT] rw_dispatcher: Reading/writing %u bytes data through DMA.\n", (unsigned int) count);
             if(rwFlag) {
                 //read from DMA
                 //first mapping
@@ -303,7 +301,7 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
         return IRQ_NONE;
     }
     //handle irq
-    printk(KERN_INFO "[FT] ft_irq_handler: 0x%x from irq %d.\n",irq_v,irq);
+    //printk(KERN_INFO "[FT] ft_irq_handler: 0x%x from irq %d.\n",irq_v,irq);
     if(irq_v&0x8) {
         //dma write finished
         write_bar0_u32(devInfo,0x28,8);//clear flag
@@ -479,7 +477,7 @@ long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg) {
     struct DevInfo_t * devInfo = 0;
     struct Bar0Cmd_t bar0_cmd;
     uint32_t tmp;
-    printk(KERN_INFO "[FT] fpga_ioctl: Entering function with command %u.\n",cmd);
+    //printk(KERN_INFO "[FT] fpga_ioctl: Entering function with command %u.\n",cmd);
     devInfo = (struct DevInfo_t *)filePtr->private_data;
     //consider command
     if(cmd==FT_RESET) {
@@ -491,7 +489,7 @@ long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg) {
         copy_from_user(&bar0_cmd, (void __user *) arg, sizeof(struct Bar0Cmd_t));//fetch command
         tmp = read_bar0_u32(devInfo,bar0_cmd.addr);//read
         copy_to_user(bar0_cmd.value, (char*)&tmp, sizeof(uint32_t));//copy to user
-        printk(KERN_INFO "[FT] fpga_ioctl: read %u from %u.\n", tmp, bar0_cmd.addr);
+        //printk(KERN_INFO "[FT] fpga_ioctl: read %u from %u.\n", tmp, bar0_cmd.addr);
         return 0;
     }
     else if(cmd==FT_WRITE_BAR0_U32) {
@@ -499,11 +497,11 @@ long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg) {
         copy_from_user(&bar0_cmd, (void __user *) arg, sizeof(struct Bar0Cmd_t));//fetch command
         copy_from_user((char*)&tmp, bar0_cmd.value, sizeof(uint32_t));//copy from user
         write_bar0_u32(devInfo,bar0_cmd.addr,tmp);//write
-        printk(KERN_INFO "[FT] fpga_ioctl: write %u to %u.\n", tmp, bar0_cmd.addr);
+        //printk(KERN_INFO "[FT] fpga_ioctl: write %u to %u.\n", tmp, bar0_cmd.addr);
         return 0;
     }
     //invalid command
-    printk(KERN_WARNING "[FT] fpga_ioctl: Unknown command %u!\n", cmd);
+    //printk(KERN_WARNING "[FT] fpga_ioctl: Unknown command %u!\n", cmd);
     return -1;
 }
 
