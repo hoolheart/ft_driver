@@ -57,6 +57,7 @@ void write_bar0_u32(struct DevInfo_t * dev_info, uint32_t offset, uint32_t value
     //check offset validation
     if(offset<dev_info->barLengths[0]) {
         iowrite32(value, startAddr);
+        mmiowb();
     }
 }
 
@@ -275,6 +276,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                     }
                     else {
                         //start DMA
+                        printk(KERN_INFO "[FT] DMA receive mapping 0x%x\n",(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));
                         write_bar0_u32(devInfo,0x04,(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));//set address
                         devInfo->flag_dma_rx = 0;//prepare flag
                         write_bar0_u32(devInfo, 0x08, 0);
@@ -384,7 +386,7 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
         //dma read finished
         write_bar0_u32(devInfo,0x28,2);//clear flag
         devInfo->flag_dma_rx++;
-        printk(KERN_INFO "[FT] DMA rx interrupt %d\n", devInfo->flag_dma_rx);
+        //printk(KERN_INFO "[FT] DMA rx interrupt %d\n", devInfo->flag_dma_rx);
         //unmap memory
         pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
         //up semaphore
@@ -490,6 +492,7 @@ int fpga_reprobe(struct DevInfo_t *devInfo) {
 
     //clear rx semaphore
     while (down_trylock(&devInfo->sem_dma_rx)==0) {}
+    devInfo->dma_rx_head = 0; devInfo->dma_rx_tail = 0;
 
     return 0;
 }

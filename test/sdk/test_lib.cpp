@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <time.h>
+#include <fcntl.h>
 
 int main(int argc, char const *argv[]) {
 
@@ -63,7 +64,7 @@ int main(int argc, char const *argv[]) {
 	struct timespec start,stop;
 	double time_val = 0.0;
 	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
-	while((remaining>0)&&(cnt<1e5)) {
+	while((remaining>0)&&(cnt<5e5)) {
 		int count = FT_ReceiveFibreData(buffer+size-remaining,remaining);
 		cnt++;
 		remaining -= count;
@@ -112,6 +113,12 @@ int main(int argc, char const *argv[]) {
 		if(start_index<0) {
 			printf("no match transmit data\n");
 		}
+	}
+	//save to file
+	int fd = open("result.dat",O_WRONLY|O_CREAT|O_TRUNC,0670);
+	if(fd>=0) {
+		write(fd,buffer,128*1024);
+		close(fd);
 	}
 
     //step 8: receive synchronized serial port data

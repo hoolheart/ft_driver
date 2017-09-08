@@ -403,7 +403,7 @@ unsigned int FTCardDriver::stopTask()
     writeBAR0(INNER_TRIGGER_ADDR, 0);//stop inner trigger
     writeBAR0(0x38, 0);//clear channel setting
     //reset device
-    reset();
+    //reset();
     d->deviceStatus = FT_CARD_DATA::DEV_OPEN;
     return FT_STATUS_SUCCESS;
 }
