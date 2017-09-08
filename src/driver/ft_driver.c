@@ -385,12 +385,14 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
 static irqreturn_t ft_irq_handler(int irq, void *arg) {
     //fetch private data
     struct DevInfo_t * devInfo = (struct DevInfo_t *)arg;
-    uint32_t irq_v = read_bar0_u32(devInfo,0x28);//get interrupt vector
+    uint32_t irq_v = read_bar0_u32(devInfo,0x24);//get interrupt vector
     //check irq
-    if((irq_v&0x4A)==0) {
+    if((irq_v&0x7)==0) {
         return IRQ_NONE;
     }
+    write_bar0_u32(devInfo,0x24,7);//clear interrupt vector
     //handle irq
+    irq_v = read_bar0_u32(devInfo,0x28);//get interrupt vector
     //printk(KERN_INFO "[FT] ft_irq_handler: 0x%x from irq %d.\n",irq_v,irq);
     if(irq_v&0x8) {
         //dma write finished

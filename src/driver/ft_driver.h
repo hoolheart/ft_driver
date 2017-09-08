@@ -20,7 +20,7 @@
 static const size_t BUFFER_SIZE    = PAGE_SIZE;
 #define DMA_PAGE_ODR_T 1
 static const size_t DMA_PAGE_NUM_T = 1<<DMA_PAGE_ODR_T;
-#define DMA_PAGE_ODR_R 3
+#define DMA_PAGE_ODR_R 5
 static const size_t DMA_PAGE_NUM_R = 1<<DMA_PAGE_ODR_R;
 
 //Keep track of bits and bobs that we need for the driver
