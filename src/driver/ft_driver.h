@@ -22,7 +22,7 @@ static const size_t BUFFER_SIZE    = PAGE_SIZE;
 static const size_t DMA_PAGE_NUM_T = 1<<DMA_PAGE_ODR_T;
 #define DMA_PAGE_ODR_R 5
 static const size_t DMA_PAGE_NUM_R = 1<<DMA_PAGE_ODR_R;
-#define DMA_BUFFER_NUM_R 4
+#define DMA_BUFFER_NUM_R 16
 
 //Keep track of bits and bobs that we need for the driver
 struct DevInfo_t {
