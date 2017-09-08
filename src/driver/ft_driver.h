@@ -22,6 +22,7 @@ static const size_t BUFFER_SIZE    = PAGE_SIZE;
 static const size_t DMA_PAGE_NUM_T = 1<<DMA_PAGE_ODR_T;
 #define DMA_PAGE_ODR_R 5
 static const size_t DMA_PAGE_NUM_R = 1<<DMA_PAGE_ODR_R;
+#define DMA_BUFFER_NUM_R 4
 
 //Keep track of bits and bobs that we need for the driver
 struct DevInfo_t {
@@ -41,8 +42,8 @@ struct DevInfo_t {
   uint32_t *buffer;
 
   /* DMA buffer. If allocated, will be DMA_PAGE_NUM*PAGE_SIZE. */
-  char *dma_tx_buffer, *dma_rx_buffer[2];
-  int dma_rx_index;
+  char *dma_tx_buffer, *dma_rx_buffer[DMA_BUFFER_NUM_R];
+  int dma_rx_head, dma_rx_tail;
   dma_addr_t dma_tx_mem, dma_rx_mem;
   
   /* Mutex for this device. */

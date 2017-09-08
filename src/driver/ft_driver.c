@@ -162,7 +162,6 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
     size_t bytesToTransfer = 0;
     size_t remainSize = 0;
     size_t currentIndex = 0;
-    int last_dma_index = 0;
 
     struct DevInfo_t * devInfo = (struct DevInfo_t *) filePtr->private_data;
 
@@ -268,7 +267,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                 //read from DMA
                 //first mapping
                 if(devInfo->flag_dma_rx==-1) {
-                    devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer[devInfo->dma_rx_index], DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                    devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer[devInfo->dma_rx_head], DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
                     if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
                         printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
                         bytesDone = 0;
@@ -299,9 +298,8 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                         bytesToTransfer = DMA_PAGE_NUM_R*PAGE_SIZE;
                     }
                     //remap
-                    last_dma_index = devInfo->dma_rx_index;
-                    devInfo->dma_rx_index = (devInfo->dma_rx_index+1)%2;
-                    devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer[devInfo->dma_rx_index], DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                    devInfo->dma_rx_head = (devInfo->dma_rx_head+1)%DMA_BUFFER_NUM_R;
+                    devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer[devInfo->dma_rx_head], DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
                     if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
                         printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
                         devInfo->flag_dma_rx = -1;//reset flag
@@ -314,7 +312,8 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                         write_bar0_u32(devInfo, 0x28, 1);
                     }
                     //copy data
-                    copy_to_user(iocmd.userAddr, (char*)devInfo->dma_rx_buffer[last_dma_index], bytesToTransfer);
+                    copy_to_user(iocmd.userAddr, (char*)devInfo->dma_rx_buffer[devInfo->dma_rx_tail], bytesToTransfer);
+                    devInfo->dma_rx_tail = (devInfo->dma_rx_tail+1)%DMA_BUFFER_NUM_R;
                     bytesDone = bytesToTransfer;
                 }
                 else {
@@ -356,6 +355,7 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                         if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),10*1000)>0) {
                         //if(wait_for_dma_tx(devInfo,1,1000*100)>0) {
                             //successful
+                            printk(KERN_INFO "[FT] Finish DMA tx\n");
                             bytesDone = bytesToTransfer;
                         }
                         else {
@@ -384,6 +384,7 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
     //fetch private data
     struct DevInfo_t * devInfo = (struct DevInfo_t *)arg;
     uint32_t irq_v = read_bar0_u32(devInfo,0x24);//get interrupt vector
+    //printk(KERN_INFO "[FT] ft_irq_handler: 0x%x from irq %d.\n",irq_v,irq);
     //check irq
     if((irq_v&0x7)==0) {
         return IRQ_NONE;
@@ -483,11 +484,11 @@ int fpga_reprobe(struct DevInfo_t *devInfo) {
     write_bar0_u32(devInfo,0x18,PAGE_SIZE*DMA_PAGE_NUM_R);//set size
 
     //enable interrupt
-    //if(enable_int(devInfo)!=0) {
-        //printk(KERN_WARNING "[FT] enable interrupt failed!\n");
-        //return -1;
-    //}
-    write_bar0_u32(devInfo, 0x20, 0x7ffffffe);
+    if(enable_int(devInfo)!=0) {
+        printk(KERN_WARNING "[FT] enable interrupt failed!\n");
+        return -1;
+    }
+    //write_bar0_u32(devInfo, 0x20, 0x7ffffffe);
     write_bar0_u32(devInfo, 0x28, 0x4A);//clear flag
 
     return 0;
@@ -504,7 +505,7 @@ int fpga_reset(struct DevInfo_t *devInfo) {
     }
 
     //free irq first
-    //disable_int(devInfo);
+    disable_int(devInfo);
 
     //reset DMA mappings
     if(devInfo->flag_dma_rx>=0) {
@@ -685,6 +686,7 @@ static int unmap_bars(struct DevInfo_t * devInfo) {
 }
 
 static int prepare_dma_buffer(struct DevInfo_t * devInfo) {
+    int i = 0;
     //mask 32
     if(pci_set_dma_mask(devInfo->pciDev, DMA_BIT_MASK(32))==0) {
         pci_set_consistent_dma_mask(devInfo->pciDev, DMA_BIT_MASK(32));
@@ -698,17 +700,20 @@ static int prepare_dma_buffer(struct DevInfo_t * devInfo) {
     write_bar0_u32(devInfo,0x1c,PAGE_SIZE*DMA_PAGE_NUM_T);//set size
     //dma for receive data from device
     printk(KERN_INFO "[FT] DMA receive buffer size: %u.\n", PAGE_SIZE*DMA_PAGE_NUM_R);
-    devInfo->dma_rx_buffer[0] = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_ODR_R);//allocate memory
-    devInfo->dma_rx_buffer[1] = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_ODR_R);
-    devInfo->dma_rx_index = 0;
+    for(i=0;i<DMA_BUFFER_NUM_R;i++) {
+        devInfo->dma_rx_buffer[i] = (char*)__get_free_pages(GFP_KERNEL | __GFP_DMA | __GFP_ZERO, DMA_PAGE_ODR_R);//allocate memory
+    }
+    devInfo->dma_rx_head = 0; devInfo->dma_rx_tail = 0;
     write_bar0_u32(devInfo,0x18,PAGE_SIZE*DMA_PAGE_NUM_R);//set size
     return 0;
 }
 
 static int release_dma_buffer(struct DevInfo_t * devInfo) {
+    int i = 0;
     free_pages ((unsigned long) devInfo->dma_tx_buffer, DMA_PAGE_ODR_T);
-    free_pages ((unsigned long) devInfo->dma_rx_buffer[0], DMA_PAGE_ODR_R);
-    free_pages ((unsigned long) devInfo->dma_rx_buffer[1], DMA_PAGE_ODR_R);
+    for(i=0;i<DMA_BUFFER_NUM_R;i++) {
+        free_pages ((unsigned long) devInfo->dma_rx_buffer[i], DMA_PAGE_ODR_R);
+    }
     return 0;
 }
 
