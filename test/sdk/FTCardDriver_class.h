@@ -26,11 +26,9 @@ public:
     unsigned int reset();/**< reset fibre-test card */
 
     unsigned int setParam(unsigned char id, int value);/**< set parameter */
-    unsigned int startTask();/**< start task */
+    unsigned int startTask(int simulation_enable);/**< start task */
     unsigned int sendFibreData(void * ptr, unsigned int len);/**< send fibre data */
-    unsigned int getPendingFibreSize();/**< get size of pending fibre data */
     unsigned int receiveFibreData(void * ptr, unsigned int max_len);/**< receive fibre data */
-    void clearPendingFibreData();/**< clear pending fibre data */
     unsigned int stopTask();/**< stop task */
 
     unsigned int sendSynData(unsigned char chl, SYN_FREQ freq, void * ptr, unsigned int len);/**< send synchronization serial port data */
@@ -47,7 +45,6 @@ private:
     bool readBAR0(unsigned int offset, unsigned int& out);
     bool writeBAR0(unsigned int offset, unsigned int in);
     /************ functions of receiving threads **********/
-    static void *receiveFibre(void* lpara);
     static void *receiveSyn(void* lpara);
 };
 

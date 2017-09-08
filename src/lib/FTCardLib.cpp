@@ -21,9 +21,9 @@ unsigned int CALL_METHOD FT_SetParam(unsigned char id, int value)
 	return FTCardDriver::getInstance()->setParam(id, value);
 }
 
-unsigned int CALL_METHOD FT_StartTask()
+unsigned int CALL_METHOD FT_StartTask(int simulation_enable)
 {
-	return FTCardDriver::getInstance()->startTask();
+	return FTCardDriver::getInstance()->startTask(simulation_enable);
 }
 
 unsigned int CALL_METHOD FT_SendFibreData(void * ptr, unsigned int len)
@@ -31,19 +31,9 @@ unsigned int CALL_METHOD FT_SendFibreData(void * ptr, unsigned int len)
 	return FTCardDriver::getInstance()->sendFibreData(ptr, len);
 }
 
-unsigned int CALL_METHOD FT_GetPendingFibreSize()
-{
-	return FTCardDriver::getInstance()->getPendingFibreSize();
-}
-
 unsigned int CALL_METHOD FT_ReceiveFibreData(void * ptr, unsigned int max_len)
 {
 	return FTCardDriver::getInstance()->receiveFibreData(ptr, max_len);
-}
-
-void CALL_METHOD FT_ClearPendingFibreData()
-{
-	FTCardDriver::getInstance()->clearPendingFibreData();
 }
 
 unsigned int CALL_METHOD FT_StopTask()

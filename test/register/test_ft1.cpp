@@ -20,6 +20,7 @@ void test_bite(int FID) {
     read(FID, &iocmd, sizeof(uint32_t));
     //print
     cout << "Using read interface" << endl;
+    cout << "state register " << tmp << endl;
     cout << "PCI-e state: " << ((tmp&0x10000)?"OK":"Error") << endl;
     cout << "DDR2 state: " << ((tmp&0x20000)?"OK":"Error") << endl;
     for (int i=0;i<4;i++) {
@@ -32,6 +33,7 @@ void test_bite(int FID) {
     ioctl(FID,FT_READ_BAR0_U32,&barCmd);
     //print
     cout << "Using ioctl interface" << endl;
+    cout << "state register " << tmp << endl;
     cout << "PCI-e state: " << ((tmp&0x10000)?"OK":"Error") << endl;
     cout << "DDR2 state: " << ((tmp&0x20000)?"OK":"Error") << endl;
     for (int i=0;i<4;i++) {
@@ -45,7 +47,7 @@ void test_cpi_freq(int FID) {
     uint32_t tmp = 100;
     IOCmd_t iocmd = {BAR_IO,0,CPI_FREQ_BASE,(void *)&tmp};
     //write
-    write(FID, &iocmd, sizeof(uint32_t));
+    cout<< "write return " << write(FID, &iocmd, sizeof(uint32_t)) << endl;
     //print
     cout << "Using write interface" << endl;
     cout << "Set CPI1 FREQ: " << tmp << endl;
@@ -58,11 +60,12 @@ void test_cpi_freq(int FID) {
     tmp = 200;
     Bar0Cmd_t barCmd = {CPI_FREQ_BASE,&tmp};
     //write
-    ioctl(FID,FT_WRITE_BAR0_U32,&barCmd);
+    cout << "return form ioctl write_bar " << ioctl(FID,FT_WRITE_BAR0_U32,&barCmd) << endl;
     //print
     cout << "Using ioctl interface" << endl;
     cout << "Set CPI1 FREQ: " << tmp << endl;
     //read
+    barCmd.addr = CPI_FREQ_BASE;
     ioctl(FID,FT_READ_BAR0_U32,&barCmd);
     //print
     cout << "Using ioctl interface" << endl;

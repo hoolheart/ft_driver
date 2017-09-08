@@ -2,6 +2,7 @@
 #include "ft_macros.h"
 #include <pthread.h>
 #include <string.h>
+#include <stdio.h>
 
 //Use Linux file functions for the device
 #include <sys/ioctl.h>
@@ -53,16 +54,11 @@ enum FT_CARD_PARAM {
 struct FT_CARD_DATA {
     enum{DEV_CLOSE,DEV_OPEN,TASK_GOING} deviceStatus;/**< device status */
     pthread_mutex_t mutexDev;/**< device mutex */
-    //HANDLE eventInt;/**< events of device interrupts */
 
     unsigned char *transmitData;/**< transmit fibre data */
 
-    bool stopSignalFibre, stopSignalSyn;/**< signal to stop threads */
-    pthread_t hThreadFibre, hThreadSyn;/**< handles of threads */
-
-    unsigned char *fibreData;/**< fibre data pool */
-    int iFibreStart, iFibreStop;/**< indexes of fibre data */
-    pthread_mutex_t mutexFibre;/**< mutex of fibre data */
+    bool stopSignalSyn;/**< signal to stop threads */
+    pthread_t hThreadSyn;/**< handles of threads */
 
     unsigned char *synData;/**< synchronization data pool */
     int iSynStart, iSynStop;/**< indexes of synchronization data */
@@ -72,8 +68,8 @@ struct FT_CARD_DATA {
 };
 
 #define TRANS_DATA_SIZE (8*1024)//transmit data size
-#define SINGLE_RECV_SIZE (4*1024)//single receive fibre data size
-#define FIBRE_DATA_SIZE (10*1024*1024)//fibre data pool size
+#define SINGLE_RECV_SIZE (4*1024*(1<<5))//single receive fibre data size
+#define FIBRE_DATA_SIZE (128*1024*1024)//fibre data pool size
 #define SYN_DATA_SIZE 512//synchronization data pool size
 
 FTCardDriver* FTCardDriver::instance = 0;
@@ -112,20 +108,14 @@ FTCardDriver::FTCardDriver()
     //transmit data
     d->transmitData = new unsigned char[TRANS_DATA_SIZE];//create
 
-    //fibre data
-    d->fibreData = new unsigned char[FIBRE_DATA_SIZE];//create pool
-    d->iFibreStart = 0; d->iFibreStop = 0;//initialize index
-    pthread_mutex_init(&d->mutexFibre,0);//mutex
-
     //synchronization data
     d->synData = new unsigned char[SYN_DATA_SIZE];//create pool
     d->iSynStart = 0; d->iSynStop = 0;//initialize index
     pthread_mutex_init(&d->mutexSyn,0);//mutex
 
     //threads
-    d->stopSignalFibre = false; d->stopSignalSyn = false;//no stop signal
+    d->stopSignalSyn = false;//no stop signal
     //create threads
-    d->hThreadFibre = 0;
     pthread_create(&d->hThreadSyn,0,FTCardDriver::receiveSyn,0);
 }
 
@@ -135,17 +125,13 @@ FTCardDriver::~FTCardDriver()
     close_device();
 
     //stop threads
-    d->stopSignalFibre = true; d->stopSignalSyn = true;//set signal
-    //wait threads to finish
-    if (d->hThreadFibre) {
-        pthread_join(d->hThreadFibre,0);
-    }
+    d->stopSignalSyn = true;//set signal
     pthread_join(d->hThreadSyn,0);
 
     //delete data pools
     delete d->transmitData;
-    delete d->fibreData; delete d->synData;
-    pthread_mutex_destroy(&d->mutexFibre); pthread_mutex_destroy(&d->mutexSyn);
+    delete d->synData;
+    pthread_mutex_destroy(&d->mutexSyn);
 
     //delete mutex
     pthread_mutex_destroy(&d->mutexDev);
@@ -276,7 +262,7 @@ unsigned int FTCardDriver::setParam(unsigned char id, int value)
     return FT_STATUS_SUCCESS;
 }
 
-unsigned int FTCardDriver::startTask()
+unsigned int FTCardDriver::startTask(int simulation_enable)
 {
     //check status
     if (d->deviceStatus == FT_CARD_DATA::DEV_CLOSE) {
@@ -335,12 +321,11 @@ unsigned int FTCardDriver::startTask()
     //config channel
     unsigned int reg, val;
     val = ((d->params[FT_PARAM_FIBRECHL] - 1) << 3) + 0x03;//channel
+    if(simulation_enable) {
+    	val += 0x04;
+    }
     readBAR0(0x38, reg);//read existing state
-    writeBAR0(0x38, (reg & 0x03) | val);//set channel
-
-    //start fibre receiving thread
-    d->stopSignalFibre = false;
-    pthread_create(&d->hThreadFibre, 0, FTCardDriver::receiveFibre, 0);
+    writeBAR0(0x38, (reg & 0x07) | val);//set channel
 
     //set status
     d->deviceStatus = FT_CARD_DATA::TASK_GOING;
@@ -383,39 +368,25 @@ unsigned int FTCardDriver::sendFibreData(void * ptr, unsigned int len)
     return FT_STATUS_TIMEOUT;
 }
 
-unsigned int FTCardDriver::getPendingFibreSize()
-{
-    if (d->deviceStatus == FT_CARD_DATA::TASK_GOING) {//check status
-        pthread_mutex_lock(&d->mutexFibre);//lock data
-        unsigned int size = (d->iFibreStop >= d->iFibreStart) ? (d->iFibreStop - d->iFibreStart) : (d->iFibreStop + FIBRE_DATA_SIZE - d->iFibreStart);//get size
-        pthread_mutex_unlock(&d->mutexFibre);//release data
-        return size;
-    }
-    return 0;
-}
-
 unsigned int FTCardDriver::receiveFibreData(void * ptr, unsigned int max_len)
 {
-    if (d->deviceStatus == FT_CARD_DATA::TASK_GOING) {//check status
-        pthread_mutex_lock(&d->mutexFibre);//lock data
-        unsigned int size = (d->iFibreStop >= d->iFibreStart) ? (d->iFibreStop - d->iFibreStart) : (d->iFibreStop + FIBRE_DATA_SIZE - d->iFibreStart);//get size
-        if (size > max_len) size = max_len;
-        unsigned char *pData = (unsigned char *)ptr;
-        for (unsigned int i = 0; i < size; i++) {
-            pData[i] = d->fibreData[d->iFibreStart];//fill data
-            d->iFibreStart = (d->iFibreStart + 1) % FIBRE_DATA_SIZE;//increase index
-        }
-        pthread_mutex_unlock(&d->mutexFibre);//release data
-        return size;
-    }
-    return 0;
-}
-
-void FTCardDriver::clearPendingFibreData()
-{
-    pthread_mutex_lock(&d->mutexFibre);//lock data
-    d->iFibreStart = 0; d->iFibreStop = 0;//initialize index
-    pthread_mutex_unlock(&d->mutexFibre);//release data
+	IOCmd_t iocmd = {DMA_DATA,0,0,ptr};
+	unsigned int remaining = max_len;
+	while(remaining>0) {
+		int count = SINGLE_RECV_SIZE;
+		if(remaining<(unsigned int)count) {
+			count = remaining;
+		}
+		iocmd.userAddr = ptr+(max_len-remaining);
+		count = read(fid, &iocmd, count);
+		if(count>0) {
+			remaining -= count;
+		}
+		else {
+			break;
+		}
+	}
+	return max_len-remaining;
 }
 
 unsigned int FTCardDriver::stopTask()
@@ -430,13 +401,9 @@ unsigned int FTCardDriver::stopTask()
 
     //stop task
     writeBAR0(INNER_TRIGGER_ADDR, 0);//stop inner trigger
-    //writeBAR0(0x38, 0);//clear channel setting
-    d->stopSignalFibre = true;//set signal
-    //wait threads to finish
-    if (d->hThreadFibre) {
-        pthread_join(d->hThreadFibre,0);
-        d->hThreadFibre = 0;
-    }
+    writeBAR0(0x38, 0);//clear channel setting
+    //reset device
+    reset();
     d->deviceStatus = FT_CARD_DATA::DEV_OPEN;
     return FT_STATUS_SUCCESS;
 }
@@ -598,37 +565,6 @@ bool FTCardDriver::writeBAR0(unsigned int offset, unsigned int in)
         return (dw == sizeof(uint32_t));
     }
     return false;
-}
-
-void *FTCardDriver::receiveFibre(void *lpara)
-{
-    FTCardDriver * pDriver = getInstance();//get driver instance
-
-    //prepare
-    unsigned char buffer[SINGLE_RECV_SIZE];
-    IOCmd_t iocmd = {DMA_DATA,0,0,(void *)buffer};
-
-    while (!pDriver->d->stopSignalFibre) {
-        int count = read(pDriver->fid, &iocmd, SINGLE_RECV_SIZE);
-        if (count>0) {
-            //copy dma data to buffer
-            pthread_mutex_lock(&pDriver->d->mutexFibre);//lock data
-            unsigned int size = (pDriver->d->iFibreStop >= pDriver->d->iFibreStart) ? (pDriver->d->iFibreStop - pDriver->d->iFibreStart) : (pDriver->d->iFibreStop + FIBRE_DATA_SIZE - pDriver->d->iFibreStart);//get size
-            if ((FIBRE_DATA_SIZE-size) > (unsigned int)count) {
-                size = count;
-            }
-            else {
-                size = FIBRE_DATA_SIZE - size-1;//can't fulfill buffer
-            }
-            for (unsigned int i = 0; i < size; i++) {
-                pDriver->d->fibreData[pDriver->d->iFibreStop] = buffer[i];//copy data
-                pDriver->d->iFibreStop = (pDriver->d->iFibreStop + 1) % FIBRE_DATA_SIZE;//increase index
-            }
-            pthread_mutex_unlock(&pDriver->d->mutexFibre);//release data
-        }
-    }
-
-    return 0;
 }
 
 void *FTCardDriver::receiveSyn(void *lpara)

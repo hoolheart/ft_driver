@@ -128,9 +128,10 @@ FTCARDDRIVER_API unsigned int CALL_METHOD FT_ResetDevice();
 FTCARDDRIVER_API unsigned int CALL_METHOD FT_SetParam(unsigned char id, int value);
 /**
 * @brief start task
+* @param simulation_enable - enable flag of simulation, 0 for fibre mode, 1 for simulation mode
 * @return see #FT_CARD_STATUS
 */
-FTCARDDRIVER_API unsigned int CALL_METHOD FT_StartTask();
+FTCARDDRIVER_API unsigned int CALL_METHOD FT_StartTask(int simulation_enable);
 /**
 * @brief send fibre data
 * @param ptr - pointer of data
@@ -139,21 +140,12 @@ FTCARDDRIVER_API unsigned int CALL_METHOD FT_StartTask();
 */
 FTCARDDRIVER_API unsigned int CALL_METHOD FT_SendFibreData(void * ptr, unsigned int len);
 /**
-* @brief get size of pending fibre data
-* @return size of pending fibre data, unit:Byte
-*/
-FTCARDDRIVER_API unsigned int CALL_METHOD FT_GetPendingFibreSize();
-/**
 * @brief receive fibre data
 * @param ptr - pointer of data
 * @param max_len - maximum length of data, unit:Byte
 * @return actually read data length, unit:Byte
 */
 FTCARDDRIVER_API unsigned int CALL_METHOD FT_ReceiveFibreData(void * ptr, unsigned int max_len);
-/**
-* @brief clear pending fibre data
-*/
-FTCARDDRIVER_API void CALL_METHOD FT_ClearPendingFibreData();
 /**
 * @brief stop task
 * @return see #FT_CARD_STATUS
