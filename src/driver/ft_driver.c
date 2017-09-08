@@ -282,34 +282,14 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                     }
                 }
                 //wait for data
-                if(devInfo->flag_dma_rx==0) {
-                    wait_event_interruptible_timeout(devInfo->wait_dma_rx,(devInfo->flag_dma_rx==1),1000);
-                    //wait_for_dma_rx(devInfo,1,1000);
-                }
-                //check data
-                if(devInfo->flag_dma_rx==1) {
-                    //unmap memory
-                    pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                if(down_interruptible(&devInfo->sem_dma_rx)==0) {
+                    //successful
                     //get size
                     if(count<DMA_PAGE_NUM_R*PAGE_SIZE) {
                         bytesToTransfer = count;
                     }
                     else {
                         bytesToTransfer = DMA_PAGE_NUM_R*PAGE_SIZE;
-                    }
-                    //remap
-                    devInfo->dma_rx_head = (devInfo->dma_rx_head+1)%DMA_BUFFER_NUM_R;
-                    devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer[devInfo->dma_rx_head], DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
-                    if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
-                        printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
-                        devInfo->flag_dma_rx = -1;//reset flag
-                    }
-                    else {
-                        //start DMA
-                        write_bar0_u32(devInfo,0x04,(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));//set address
-                        devInfo->flag_dma_rx = 0;//prepare flag
-                        write_bar0_u32(devInfo, 0x08, 0);
-                        write_bar0_u32(devInfo, 0x28, 1);
                     }
                     //copy data
                     copy_to_user(iocmd.userAddr, (char*)devInfo->dma_rx_buffer[devInfo->dma_rx_tail], bytesToTransfer);
@@ -404,7 +384,24 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
         //dma read finished
         write_bar0_u32(devInfo,0x28,2);//clear flag
         devInfo->flag_dma_rx = 1;
-        wake_up_interruptible(&devInfo->wait_dma_rx);//wake up writing process
+        //unmap memory
+        pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+        //up semaphore
+        up(&devInfo->sem_dma_rx);
+        //remap
+        devInfo->dma_rx_head = (devInfo->dma_rx_head+1)%DMA_BUFFER_NUM_R;
+        devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer[devInfo->dma_rx_head], DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+        if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
+            printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
+            devInfo->flag_dma_rx = -1;//reset flag
+        }
+        else {
+            //start DMA
+            write_bar0_u32(devInfo,0x04,(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));//set address
+            devInfo->flag_dma_rx = 0;//prepare flag
+            write_bar0_u32(devInfo, 0x08, 0);
+            write_bar0_u32(devInfo, 0x28, 1);
+        }
     }
     if(irq_v&0x40) {
         //trigger
@@ -490,6 +487,9 @@ int fpga_reprobe(struct DevInfo_t *devInfo) {
     }
     //write_bar0_u32(devInfo, 0x20, 0x7ffffffe);
     write_bar0_u32(devInfo, 0x28, 0x4A);//clear flag
+
+    //clear rx semaphore
+    while (down_trylock(&devInfo->sem_dma_rx)==0) {}
 
     return 0;
 }
@@ -784,7 +784,8 @@ static int probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     //prepare wait queue
     init_waitqueue_head (&devInfo->wait_dma_tx);
-    init_waitqueue_head (&devInfo->wait_dma_rx);
+    //prepare semaphore
+    sema_init (&devInfo->sem_dma_rx, 0);
 
     //enable interrupt
     if(enable_int(devInfo)!=0) {

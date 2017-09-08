@@ -50,7 +50,8 @@ struct DevInfo_t {
   struct semaphore sem;
 
   /* handle of DMA transmit interrupt */
-  wait_queue_head_t wait_dma_tx, wait_dma_rx;
+  wait_queue_head_t wait_dma_tx;
+  struct semaphore sem_dma_rx;
   int flag_dma_tx, flag_dma_rx;
   
   /* PID of process that called open() */
