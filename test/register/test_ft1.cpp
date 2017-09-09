@@ -65,7 +65,6 @@ void test_cpi_freq(int FID) {
     cout << "Using ioctl interface" << endl;
     cout << "Set CPI1 FREQ: " << tmp << endl;
     //read
-    barCmd.addr = CPI_FREQ_BASE;
     ioctl(FID,FT_READ_BAR0_U32,&barCmd);
     //print
     cout << "Using ioctl interface" << endl;

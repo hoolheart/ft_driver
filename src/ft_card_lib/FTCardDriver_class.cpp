@@ -400,6 +400,7 @@ unsigned int FTCardDriver::stopTask()
     }
 
     //stop task
+    ioctl(fid,FT_STOP_DMA_RX,0);
     writeBAR0(INNER_TRIGGER_ADDR, 0);//stop inner trigger
     writeBAR0(0x38, 0);//clear channel setting
     //reset device
@@ -558,11 +559,11 @@ bool FTCardDriver::writeBAR0(unsigned int offset, unsigned int in)
         pthread_mutex_lock(&d->mutexDev);//lock mutex
         //prepare Bar0Cmd
         uint32_t tmp = (uint32_t)in;
-        IOCmd_t iocmd = {BAR_IO,0,(uint32_t)offset,(void *)&tmp};
+        Bar0Cmd_t barCmd = {(uint32_t)offset,&tmp};
         //write
-        int dw = write(fid, &iocmd, sizeof(uint32_t));
+        int dw = ioctl(fid,FT_WRITE_BAR0_U32,&barCmd);
         pthread_mutex_unlock(&d->mutexDev);//release mutex
-        return (dw == sizeof(uint32_t));
+        return (dw == 0);
     }
     return false;
 }

@@ -61,9 +61,10 @@ struct IOCmd_t {
 
 //ioctl commands
 enum FT_IOCTL_CMD {
-    FT_RESET = 0,//reset FPGA
+    FT_RESET = 0x100,//reset FPGA
     FT_READ_BAR0_U32,//read an u32 data from bar0
     FT_WRITE_BAR0_U32,//write an u32 data to bar0
+    FT_STOP_DMA_RX,//stop DMA receiving
 
     FT_IOCTL_CMD_END
 };

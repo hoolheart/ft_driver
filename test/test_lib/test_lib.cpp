@@ -17,7 +17,7 @@ int main(int argc, char const *argv[]) {
 	printf("Succeed to open device\n");
 
 	//step 2: set parameters
-	int chl = 1;
+	int chl = 4;
 	dw = FT_SetParam(FT_PARAMID_FIBRECHL, chl);
 	dw = FT_SetParam(FT_PARAMID_TRIGGER, 0);
 	dw = FT_SetParam(FT_PARAMID_LEAD,1);
@@ -76,52 +76,16 @@ int main(int argc, char const *argv[]) {
 	time_val = (stop.tv_sec - start.tv_sec) + (stop.tv_nsec - start.tv_nsec) * 1.0e-9;
 	printf("Received total %u fibre data in %f s\n",size-remaining,time_val);
 
-    //step 7: finish task
-	if (dw = FT_StopTask(), dw != FT_STATUS_SUCCESS) {
-		printf("Failed to stop task (return value %u)\n", dw);
-		return 1;
-	}
-	printf("Succeed to stop task\n");
-
 	//print data
 	if((size-remaining)>0) {
 		uint16_t *recvData = (uint16_t*)buffer;
-		int size_u16 = (size-remaining)/2;
 		printf("10 Received data\n");
 		for(int i=0;i<10;i++) {
 			printf("0x%x\n",recvData[i]);
 		}
-		int start_index = -1;
-		for(int i=0;i<size_u16;i++) {
-			if(start_index<0) {
-				if((i<(size_u16-10)) && (recvData[i]==pData[0]) && (recvData[i+6]==pData[6])) {
-					start_index = i;
-					printf("match transmit data\n");
-					printf("begin index: %d\n",start_index);
-					printf("0x%x\n",recvData[i]);
-				}
-			}
-			else {
-				if(i<(start_index+10)) {
-					printf("0x%x\n",recvData[i]);
-				}
-				else {
-					break;
-				}
-			}
-		}
-		if(start_index<0) {
-			printf("no match transmit data\n");
-		}
-	}
-	//save to file
-	int fd = open("result.dat",O_WRONLY|O_CREAT|O_TRUNC,0670);
-	if(fd>=0) {
-		write(fd,buffer,128*1024);
-		close(fd);
 	}
 
-    //step 8: receive synchronized serial port data
+    //step 7: receive synchronized serial port data
 	unsigned char synRecv[512]; remaining = 512; cnt = 0;
 	while((remaining>0)&&(cnt<20)) {
 		if(FT_GetPendingSynSize()>0) {
@@ -132,6 +96,13 @@ int main(int argc, char const *argv[]) {
 		usleep(5000);
 	}
 	printf("Received total %u synchronization data\n",512-remaining);
+
+    //step 8: finish task
+	if (dw = FT_StopTask(), dw != FT_STATUS_SUCCESS) {
+		printf("Failed to stop task (return value %u)\n", dw);
+		return 1;
+	}
+	printf("Succeed to stop task\n");
 
 /************************************************************************/
 /*******************************TTL operations***************************/

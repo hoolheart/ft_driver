@@ -7,12 +7,11 @@
 
 # Load the FIBRE_TEST PCIe driver
 if [ `lsmod | grep -o ft_driver` ]; then
-    echo "remove FIBRE_TEST driver first."
+    echo "remove previous FIBRE_TEST driver first."
     rmmod ft_driver.ko
 fi
-echo "load ft_driver driver."
+echo "loading FIBRE_TEST driver."
 insmod ft_driver.ko
-lsmod | grep ft_driver
 
 #Find what major device number was assigned from /proc/devices
 majorNum=$( awk '{ if ($2 ~ /pcie_ft1/) print $1}' /proc/devices )
@@ -27,7 +26,9 @@ else
     fi
 
     #Create a new one with full read/write permissions for everyone
-    sudo mknod -m 666 /dev/pcie_ft1 c $majorNum 0
+    mknod -m 666 /dev/pcie_ft1 c $majorNum 0
+
+    echo "Success!"
 fi
 
 

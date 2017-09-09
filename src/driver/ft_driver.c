@@ -57,7 +57,6 @@ void write_bar0_u32(struct DevInfo_t * dev_info, uint32_t offset, uint32_t value
     //check offset validation
     if(offset<dev_info->barLengths[0]) {
         iowrite32(value, startAddr);
-        mmiowb();
     }
 }
 
@@ -71,7 +70,7 @@ uint32_t read_bar0_u32(struct DevInfo_t * dev_info, uint32_t offset) {
     return 0;
 }
 
-int wait_for_flag(int *flag, int desire_value, int single_wait_us, int wait_max) {
+int wait_for_flag(int *flag, int desire_value, int single_wait_ms, int wait_max) {
     int remain = wait_max;//remaining wait cycles
     if(remain<0) {
         remain = 1;//delay at least once
@@ -82,70 +81,8 @@ int wait_for_flag(int *flag, int desire_value, int single_wait_us, int wait_max)
     }
     //wait
     while(remain>0) {
-        udelay(single_wait_us);//delay
+        msleep_interruptible(single_wait_ms);//delay
         if(*flag == desire_value) {
-            break;
-        }
-        remain--;
-    }
-    return remain;
-}
-
-int wait_for_dma_tx(struct DevInfo_t * dev_info, int single_wait_us, int wait_max) {
-    int remain = wait_max;//remaining wait cycles
-    uint32_t irq_v = 0;
-    if(remain<0) {
-        remain = 1;//delay at least once
-    }
-    //first check
-    irq_v = read_bar0_u32(dev_info,0x28);
-    if(irq_v&0x8) {
-        //dma write finished
-        write_bar0_u32(dev_info,0x28,8);//clear flag
-        dev_info->flag_dma_tx = 1;
-        printk(KERN_INFO "[FT] DMA tx interrupt\n");
-        return remain;
-    }
-    //wait
-    while(remain>0) {
-        udelay(single_wait_us);//delay
-        irq_v = read_bar0_u32(dev_info,0x28);
-        if(irq_v&0x8) {
-            //dma write finished
-            write_bar0_u32(dev_info,0x28,8);//clear flag
-            dev_info->flag_dma_tx = 1;
-            printk(KERN_INFO "[FT] DMA tx interrupt\n");
-            break;
-        }
-        remain--;
-    }
-    return remain;
-}
-
-int wait_for_dma_rx(struct DevInfo_t * dev_info, int single_wait_us, int wait_max) {
-    int remain = wait_max;//remaining wait cycles
-    uint32_t irq_v = 0;
-    if(remain<0) {
-        remain = 1;//delay at least once
-    }
-    //first check
-    //irq_v = read_bar0_u32(dev_info,0x28);
-    if(irq_v&0x2) {
-        //dma write finished
-        write_bar0_u32(dev_info,0x28,2);//clear flag
-        dev_info->flag_dma_rx = 1;
-        //printk(KERN_INFO "[FT] DMA rx interrupt\n");
-        return remain;
-    }
-    //wait
-    while(remain>0) {
-        udelay(single_wait_us);//delay
-        irq_v = read_bar0_u32(dev_info,0x28);
-        if(irq_v&0x2) {
-            //dma write finished
-            write_bar0_u32(dev_info,0x28,2);//clear flag
-            dev_info->flag_dma_rx = 1;
-            //printk(KERN_INFO "[FT] DMA rx interrupt\n");
             break;
         }
         remain--;
@@ -276,15 +213,18 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                     }
                     else {
                         //start DMA
-                        printk(KERN_INFO "[FT] DMA receive mapping 0x%x\n",(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));
+                        //printk(KERN_INFO "[FT] DMA receive mapping set 0x%x\n",(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));
                         write_bar0_u32(devInfo,0x04,(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));//set address
+                        //printk(KERN_INFO "[FT] DMA receive mapping get 0x%x\n",read_bar0_u32(devInfo,0x04));
                         devInfo->flag_dma_rx = 0;//prepare flag
+                        devInfo->flag_stop = 0;
                         write_bar0_u32(devInfo, 0x08, 0);
                         write_bar0_u32(devInfo, 0x28, 1);
+                        printk(KERN_INFO "[FT] DMA rx started\n");
                     }
                 }
                 //wait for data
-                if(down_trylock(&devInfo->sem_dma_rx)==0) {
+                if((down_trylock(&devInfo->sem_dma_rx)==0) && (devInfo->flag_dma_rx>0)) {
                     //successful
                     //get size
                     if(count<DMA_PAGE_NUM_R*PAGE_SIZE) {
@@ -296,10 +236,28 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                     //copy data
                     copy_to_user(iocmd.userAddr, (char*)devInfo->dma_rx_buffer[devInfo->dma_rx_tail], bytesToTransfer);
                     devInfo->dma_rx_tail = (devInfo->dma_rx_tail+1)%DMA_BUFFER_NUM_R;
+                    devInfo->flag_dma_rx--;
                     bytesDone = bytesToTransfer;
                 }
                 else {
                     bytesDone = 0;
+                }
+                //restart if needed
+                if((devInfo->flag_stop==2) && (devInfo->flag_dma_rx<DMA_BUFFER_NUM_R)) {
+                    //remap
+                    devInfo->dma_rx_head = (devInfo->dma_rx_head+1)%DMA_BUFFER_NUM_R;
+                    devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer[devInfo->dma_rx_head], DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+                    if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
+                        printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
+                        devInfo->flag_stop = 2;//stopped
+                    }
+                    else {
+                        //start DMA
+                        devInfo->flag_stop = 0;
+                        write_bar0_u32(devInfo,0x04,(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));//set address
+                        write_bar0_u32(devInfo, 0x08, 0);
+                        write_bar0_u32(devInfo, 0x28, 1);
+                    }
                 }
             }
             else {
@@ -335,7 +293,6 @@ ssize_t rw_dispatcher(struct file *filePtr, char __user *buf, size_t count, bool
                         printk(KERN_INFO "[FT] Start DMA tx\n");
                         //wait
                         if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),10*1000)>0) {
-                        //if(wait_for_dma_tx(devInfo,1,1000*100)>0) {
                             //successful
                             printk(KERN_INFO "[FT] Finish DMA tx\n");
                             bytesDone = bytesToTransfer;
@@ -374,6 +331,7 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
     write_bar0_u32(devInfo,0x24,7);//clear interrupt vector
     //handle irq
     irq_v = read_bar0_u32(devInfo,0x28);//get interrupt vector
+    write_bar0_u32(devInfo,0x28,irq_v);
     //printk(KERN_INFO "[FT] ft_irq_handler: 0x%x from irq %d.\n",irq_v,irq);
     if(irq_v&0x8) {
         //dma write finished
@@ -391,18 +349,29 @@ static irqreturn_t ft_irq_handler(int irq, void *arg) {
         pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
         //up semaphore
         up(&devInfo->sem_dma_rx);
-        //remap
-        devInfo->dma_rx_head = (devInfo->dma_rx_head+1)%DMA_BUFFER_NUM_R;
-        devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer[devInfo->dma_rx_head], DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
-        if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
-            printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
-            devInfo->flag_dma_rx = -1;//reset flag
+        if(devInfo->flag_dma_rx>=DMA_BUFFER_NUM_R) {
+            devInfo->flag_stop = 1;
+        }
+        if(devInfo->flag_stop) {
+            //stop receiving
+            printk(KERN_INFO "[FT] DMA rx stopped\n");
+            //printk(KERN_INFO "[FT] Last address 0x%x\n",devInfo->dma_rx_mem);
+            devInfo->flag_stop = 2;//stopped
         }
         else {
-            //start DMA
-            write_bar0_u32(devInfo,0x04,(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));//set address
-            write_bar0_u32(devInfo, 0x08, 0);
-            write_bar0_u32(devInfo, 0x28, 1);
+            //remap
+            devInfo->dma_rx_head = (devInfo->dma_rx_head+1)%DMA_BUFFER_NUM_R;
+            devInfo->dma_rx_mem = pci_map_single(devInfo->pciDev, devInfo->dma_rx_buffer[devInfo->dma_rx_head], DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+            if (pci_dma_mapping_error(devInfo->pciDev, devInfo->dma_rx_mem)) {
+                printk(KERN_WARNING "[FT] Failed to map DMA rx memory.\n");
+                devInfo->flag_stop = 2;//stopped
+            }
+            else {
+                //start DMA
+                write_bar0_u32(devInfo,0x04,(uint32_t)(devInfo->dma_rx_mem & 0xffffffff));//set address
+                write_bar0_u32(devInfo, 0x08, 0);
+                write_bar0_u32(devInfo, 0x28, 1);
+            }
         }
     }
     if(irq_v&0x40) {
@@ -462,7 +431,7 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
 }
 
 int fpga_reprobe(struct DevInfo_t *devInfo) {
-    printk(KERN_INFO "[FT] reprobe: entering.\n");
+    //printk(KERN_INFO "[FT] reprobe: entering.\n");
 
     //set pci master
     pci_set_master(devInfo->pciDev);
@@ -507,32 +476,38 @@ int fpga_reset(struct DevInfo_t *devInfo) {
         return -1;
     }
 
-    //free irq first
-    disable_int(devInfo);
-
     //reset DMA mappings
+    //printk(KERN_WARNING "[FT] flags: %d %d\n",devInfo->flag_dma_rx,devInfo->flag_dma_tx);
     if(devInfo->flag_dma_rx>=0) {
-        pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+        devInfo->flag_stop = 1;
+        if(wait_for_flag(&devInfo->flag_stop, 2, 1, 1000)==0) {
+            printk(KERN_WARNING "[FT] fpga_reset: Failed to stop receiving!\n");
+            pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+        }
         devInfo->flag_dma_rx = -1;
     }
     if(devInfo->flag_dma_tx>=0) {
         pci_unmap_single(devInfo->pciDev, devInfo->dma_tx_mem, DMA_PAGE_NUM_T*PAGE_SIZE, PCI_DMA_TODEVICE);
         devInfo->flag_dma_tx = -1;
     }
+
+    //free irq first
+    disable_int(devInfo);
+
     //reset FPGA
     write_bar0_u32(devInfo, 0x2C, 1);
     msleep(1);
     write_bar0_u32(devInfo, 0x2C, 0);
     msleep(1);
 
-    //unlock file
-    up(&devInfo->sem);
-
     //re-probe
     if (fpga_reprobe(devInfo)!=0) {
         printk(KERN_WARNING "[FT] fpga_reset: Unable to reprobe device!\n");
         return -1;
     }
+
+    //unlock file
+    up(&devInfo->sem);
 
     printk(KERN_INFO "[FT] fpga_reset: Leaving function.\n");
     return 0;
@@ -599,8 +574,20 @@ long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg) {
         //printk(KERN_INFO "[FT] fpga_ioctl: write %u to %u.\n", tmp, bar0_cmd.addr);
         return 0;
     }
+    else if(cmd==FT_STOP_DMA_RX) {
+        //stop
+        if(devInfo->flag_dma_rx>=0) {
+            devInfo->flag_stop = 1;
+            if(wait_for_flag(&devInfo->flag_stop, 2, 1, 1000)==0) {
+                printk(KERN_WARNING "[FT] fpga_ioctl: Failed to stop receiving!\n");
+                pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, DMA_PAGE_NUM_R*PAGE_SIZE, PCI_DMA_FROMDEVICE);
+            }
+            devInfo->flag_dma_rx = -1;
+        }
+        return 0;
+    }
     //invalid command
-    //printk(KERN_WARNING "[FT] fpga_ioctl: Unknown command %u!\n", cmd);
+    printk(KERN_WARNING "[FT] fpga_ioctl: Unknown command %u!\n", cmd);
     return -1;
 }
 

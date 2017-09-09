@@ -1,4 +1,5 @@
 # Object files
+*.d
 *.o
 *.ko
 
@@ -19,3 +20,8 @@
 *.tmp_versions
 *modules.order
 *Module.symvers
+
+# special
+test/test_lib/test_lib
+test/register/test_ft1
+
