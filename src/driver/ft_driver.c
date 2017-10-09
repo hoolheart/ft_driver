@@ -461,7 +461,7 @@ int fpga_reprobe(struct DevInfo_t *devInfo) {
 
     //clear rx semaphore
     while (down_trylock(&devInfo->sem_dma_rx)==0) {}
-    devInfo->dma_rx_head = 0; devInfo->dma_rx_tail = 0;
+    devInfo->dma_rx_tail = devInfo->dma_rx_head;
 
     return 0;
 }

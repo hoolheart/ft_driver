@@ -7,129 +7,101 @@
 
 int main(int argc, char const *argv[]) {
 
-	unsigned int dw;
+    unsigned int dw;
 
-	//step 1: open device
-	if (dw = FT_OpenDevice(), dw != FT_STATUS_SUCCESS) {
-		printf("Failed to open device (return value %u)\n", dw);
-		return 1;
-	}
-	printf("Succeed to open device\n");
-
-	//step 2: set parameters
-	int chl = 4;
-	dw = FT_SetParam(FT_PARAMID_FIBRECHL, chl);
-	dw = FT_SetParam(FT_PARAMID_TRIGGER, 0);
-	dw = FT_SetParam(FT_PARAMID_LEAD,1);
-	if (dw != FT_STATUS_SUCCESS) {
-		printf("Failed to set fibre channel %d (return value %u)\n", chl, dw);
-		return 1;
-	}
-	printf("Succeed to set parameters (fibre channel %d, inner trigger, send lead)\n", chl);
-
-    //step 3: send control command via synchronized serial port
-	unsigned short cmd = 0x7f00;
-	if (dw = FT_SendSynData(2,FT_SYNFREQ_1M,&cmd,16), dw != FT_STATUS_SUCCESS) {
-		printf("Failed to send synchronization data (return value %u)\n", dw);
-		return 1;
-	}
-	printf("Succeed to send mode 1 switch matrix command\n");
-
-    //step 4: start task
-	if (dw = FT_StartTask(0), dw != FT_STATUS_SUCCESS) {
-		printf("Failed to start task (return value %u)\n", dw);
-		return 1;
-	}
-	printf("Succeed to start task\n");
-
-    //step 5: send fibre data
-	uint16_t pData[2048] = {0};//prepare
-	pData[0] = 0x7fff; pData[1] = 0xbc1c; pData[2] = 0xaaaa; pData[3] = 0xbbbb; pData[4] = 0x3c1c; pData[5] = 0x7fff; //add header
-	for(int i=6;i<2048-6;i++) {
-	    pData[i] = 1024-((i-6)%1024);//fill content
+    //step 1: open device
+    if (dw = FT_OpenDevice(), dw != FT_STATUS_SUCCESS) {
+        printf("Failed to open device (return value %u)\n", dw);
+        return 1;
     }
-    for(int index=0;index<6;index++) {//set tail
-        pData[2048-1-index] = pData[index];
+    printf("Succeed to open device\n");
+
+    //step 2: set parameters
+    int chl = 2;
+    dw = FT_SetParam(FT_PARAMID_FIBRECHL, chl);
+    if (dw != FT_STATUS_SUCCESS) {
+        printf("Failed to set fibre channel %d (return value %u)\n", chl, dw);
+        return 1;
     }
-	if (dw = FT_SendFibreData(pData,4096), dw != FT_STATUS_SUCCESS) {
-		printf("Failed to send fibre data (return value %u)\n", dw);
-		return 1;
-	}
-	printf("Succeed to send 4K data\n");
+    printf("Succeed to set parameters (fibre channel %d, inner trigger, send lead)\n", chl);
 
-    //step 6: receive fibre data
-	const int size = 128*1024*1024;
-	unsigned char *buffer = new unsigned char[size];
-   int remaining = size; int cnt = 0;
-	struct timespec start,stop;
-	double time_val = 0.0;
-	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
-	while((remaining>0)&&(cnt<5e5)) {
-		int count = FT_ReceiveFibreData(buffer+size-remaining,remaining);
-		cnt++;
-		remaining -= count;
-		if(count==0) {
-			usleep(10);
-		}
-	}
-	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &stop);
-	time_val = (stop.tv_sec - start.tv_sec) + (stop.tv_nsec - start.tv_nsec) * 1.0e-9;
-	printf("Received total %u fibre data in %f s\n",size-remaining,time_val);
+    //step 3: start task
+    if (dw = FT_StartTask(0), dw != FT_STATUS_SUCCESS) {
+        printf("Failed to start task (return value %u)\n", dw);
+        return 1;
+    }
+    printf("Succeed to start task\n");
 
-	//print data
-	if((size-remaining)>0) {
-		uint16_t *recvData = (uint16_t*)buffer;
-		printf("10 Received data\n");
-		for(int i=0;i<10;i++) {
-			printf("0x%x\n",recvData[i]);
-		}
-	}
+    //step 4: send fibre data
+    const int size = 1*1024*1024;
+    uint32_t pData[8*1024/4] = {0};//prepare
+    //FT_ReceiveFibreData(pData,4096*2);
+    int tx_cnt = 0;
+    for(uint32_t i=0;i<((size+4096)/(1024*8));i++) {
+        for(uint32_t j=0;j<(8*1024/4);j++) {
+            pData[j] = (i*(8*1024/4))+j;//fill content
+        }
+        if (dw = FT_SendFibreData(pData,1024*8), dw != FT_STATUS_SUCCESS) {
+            printf("Failed to send fibre data (return value %u)\n", dw);
+            return 1;
+        }
+        else {
+            tx_cnt += 1024*8;
+        }
+        usleep(1);
+    }
+    printf("Succeed to send %d data\n",tx_cnt);
+    //usleep(1);
 
-    //step 7: receive synchronized serial port data
-	unsigned char synRecv[512]; remaining = 512; cnt = 0;
-	while((remaining>0)&&(cnt<20)) {
-		if(FT_GetPendingSynSize()>0) {
-			printf("Receive %u synchronization data\n",FT_GetPendingSynSize());
-			remaining -= FT_ReceiveSynData(synRecv,remaining);
-		}
-		cnt++;
-		usleep(5000);
-	}
-	printf("Received total %u synchronization data\n",512-remaining);
+    //step 5: receive fibre data
+    unsigned char *buffer = new unsigned char[size];
+    int remaining = size; int cnt = 0;
+    struct timespec start,stop;
+    double time_val = 0.0;
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
+    while((remaining>0)&&(cnt<100000)) {
+        int count = FT_ReceiveFibreData(buffer+size-remaining,remaining);
+        remaining -= count;
+        if(count==0) {
+            cnt++;
+            usleep(1);
+        }
+        else {
+            cnt = 0;
+        }
+    }
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &stop);
+    time_val = (stop.tv_sec - start.tv_sec) + (stop.tv_nsec - start.tv_nsec) * 1.0e-9;
+    printf("Received total %u fibre data in %f s\n",size-remaining,time_val);
 
-    //step 8: finish task
-	if (dw = FT_StopTask(), dw != FT_STATUS_SUCCESS) {
-		printf("Failed to stop task (return value %u)\n", dw);
-		return 1;
-	}
-	printf("Succeed to stop task\n");
+    //print data
+    if((size-remaining)>0) {
+        uint16_t *recvData = (uint16_t*)buffer;
+        printf("10 Received data\n");
+        for(int i=0;i<10;i++) {
+            printf("0x%x\n",recvData[i]);
+        }
+        //save to file
+        int fd = open("result.dat",O_WRONLY|O_CREAT|O_TRUNC,0666);
+        if(fd>=0) {
+            write(fd,buffer,size-remaining);
+            close(fd);
+            printf("Received data are saved in file: result.dat\n");
+        }
+        else {
+            printf("Open result file failed.\n");
+        }
+    }
 
-/************************************************************************/
-/*******************************TTL operations***************************/
-	//set TTL port D11 direction
-	if (dw = FT_SetD11Direction(1), dw != FT_STATUS_SUCCESS) {
-		printf("Failed to set D11 output (return value %u)\n", dw);
-		return 1;
-	}
-	printf("Succeed to set D11 output\n");
-	//read from TTL port D9 
-	unsigned int val;
-	if (dw = FT_ReadTTLPort(9,&val), dw != FT_STATUS_SUCCESS) {
-		printf("Failed to read D9 (return value %u)\n", dw);
-		return 1;
-	}
-	printf("Read D9: %u\n",val);
-	//write data to TTL port D11
-	val = 0x55aa;
-	if (dw = FT_WriteTTLPort(11,val), dw != FT_STATUS_SUCCESS) {
-		printf("Failed to write D11 (return value %u)\n", dw);
-		return 1;
-	}
-	printf("Succeed to write D11 by 0x55aa\n");
-/************************************************************************/
+    //step 6: finish task
+    if (dw = FT_StopTask(), dw != FT_STATUS_SUCCESS) {
+        printf("Failed to stop task (return value %u)\n", dw);
+        return 1;
+    }
+    printf("Succeed to stop task\n");
 
-	sleep(2);
-	//close device
-	FT_CloseDevice();
-	return 0;
+    sleep(2);
+    //close device
+    FT_CloseDevice();
+    return 0;
 }
