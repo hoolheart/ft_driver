@@ -20,13 +20,13 @@
 static const size_t DMA_PAGE_NUM_T = 1<<DMA_PAGE_ODR_T;
 #define DMA_PAGE_ODR_R 5
 static const size_t DMA_PAGE_NUM_R = 1<<DMA_PAGE_ODR_R;
-#define DMA_BUFFER_NUM 32
+#define DMA_BUFFER_NUM_T 128
+#define DMA_BUFFER_NUM_R 32
 
-struct ft_channel_buffer {
-    char *tx_buffer;
-    int tx_push, tx_pull;
-    char *rx_buffer;
-    int rx_push, rx_push;
+/** buffer of one channel */
+struct channel_buffer {
+    char *buffer;
+    uint32_t chl;
 };
 
 //Keep track of bits and bobs that we need for the driver
@@ -59,18 +59,20 @@ struct DevInfo_t {
   int flag_dma_tx, flag_dma_rx;
   int flag_stop;
 
-  /* buffers for each channel */
-  struct ft_channel_buffer chl_buffers[NUM_CHLS];
+  /* buffers for receive */
+  struct channel_buffer rx_buffer[DMA_BUFFER_NUM_R];
+  int rx_push, rx_pull;
+  int rx_buf_cnt;
   
   /* PID of process that called open() */
   int userPID;
 
   /* current using channel */
-  int current_chl;
+  uint32_t current_chl;
   
   /* character device */
   dev_t cdevNum;
   struct cdev cdev;
   struct class *ft_class;
-  struct device *device[NUM_CHLS];
+  struct device *ft_device[NUM_CHLS];
 };
