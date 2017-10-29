@@ -384,6 +384,7 @@ ssize_t fpga_read(struct file *filePtr, char __user *buf, size_t count, loff_t *
     uint32_t chl = (uint32_t)MINOR(inode->i_rdev)+1;
     size_t bytesDone = 0;
     size_t len = 0;
+    int rst = 0;
 
     //check channel
     if(chl!=devInfo->current_chl) {
@@ -423,7 +424,21 @@ ssize_t fpga_read(struct file *filePtr, char __user *buf, size_t count, loff_t *
         else {
             len = count-bytesDone;
         }
-        //check buffer
+        //down semaphore
+        if((filePtr->f_flags&O_NONBLOCK)>0) {
+            //non blocking mode
+            rst = down_trylock(&devInfo->sem_dma_rx);
+        }
+        else {
+            //blocking mode
+            rst = down_interruptible(&devInfo->sem_dma_rx);
+        }
+        //check result
+        if(rst) {
+            printk(KERN_WARNING "[FT] fpga_read: Interrupted!\n");
+            break;
+        }
+        //read buffer
         if(devInfo->rx_buf_cnt>0) {
             //read from buffer
             copy_to_user(buf, devInfo->rx_buffer[devInfo->rx_pull].buffer, len);
@@ -431,22 +446,6 @@ ssize_t fpga_read(struct file *filePtr, char __user *buf, size_t count, loff_t *
             //update index
             devInfo->rx_pull = (devInfo->rx_pull+1)%DMA_BUFFER_NUM_R;
             devInfo->rx_buf_cnt--;
-        }
-        else if((filePtr->f_flags&O_NONBLOCK)>0) {
-            //return immediately
-            break;
-        }
-        else {
-            //wait DMA
-            if(down_interruptible(&devInfo->sem_dma_rx)==0) {
-                //new DMA finished
-                continue;
-            }
-            else {
-                //interrupted
-                printk(KERN_WARNING "[FT] fpga_read: Interrupted!\n");
-                break;
-            }
         }
     }
 
