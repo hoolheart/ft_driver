@@ -63,12 +63,14 @@ struct DevInfo_t {
   struct channel_buffer rx_buffer[DMA_BUFFER_NUM_R];
   int rx_push, rx_pull;
   int rx_buf_cnt;
+  int rx_cur_index;
   
   /* PID of process that called open() */
   int userPID;
 
   /* current using channel */
   uint32_t current_chl;
+  int simu_mode;
   
   /* character device */
   dev_t cdevNum;

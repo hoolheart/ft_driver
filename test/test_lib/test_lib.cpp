@@ -17,13 +17,13 @@ int main(int argc, char const *argv[]) {
     printf("Succeed to open device\n");
 
     //step 2: set parameters
-    int chl = 2;
+    int chl = 4;
     dw = FT_SetParam(FT_PARAMID_FIBRECHL, chl);
     if (dw != FT_STATUS_SUCCESS) {
         printf("Failed to set fibre channel %d (return value %u)\n", chl, dw);
         return 1;
     }
-    printf("Succeed to set parameters (fibre channel %d, inner trigger, send lead)\n", chl);
+    printf("Succeed to set parameters (fibre channel %d)\n", chl);
 
     //step 3: start task
     if (dw = FT_StartTask(0), dw != FT_STATUS_SUCCESS) {
@@ -33,7 +33,8 @@ int main(int argc, char const *argv[]) {
     printf("Succeed to start task\n");
 
     //step 4: send fibre data
-    const int size = 1*1024*1024;
+    const int size = 100*1024*1024;
+#if 1
     uint32_t pData[8*1024/4] = {0};//prepare
     //FT_ReceiveFibreData(pData,4096*2);
     int tx_cnt = 0;
@@ -52,6 +53,7 @@ int main(int argc, char const *argv[]) {
     }
     printf("Succeed to send %d data\n",tx_cnt);
     //usleep(1);
+#endif
 
     //step 5: receive fibre data
     unsigned char *buffer = new unsigned char[size];

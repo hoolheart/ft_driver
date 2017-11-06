@@ -227,6 +227,7 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
 
     //record current channel
     devInfo->current_chl = chl;
+    devInfo->simu_mode   = 1;
 
     //reset
     //fpga_reset(devInfo);
@@ -265,6 +266,7 @@ int fpga_reprobe(struct DevInfo_t *devInfo) {
     //re-initialize receive buffer
     devInfo->rx_push = 0; devInfo->rx_pull = 0;
     devInfo->rx_buf_cnt = 0;
+    devInfo->rx_cur_index = 0;
 
     //enable interrupt
     if(enable_int(devInfo)!=0) {
@@ -329,6 +331,9 @@ int fpga_reset(struct DevInfo_t *devInfo) {
         write_bar0_u32(devInfo,TRIGGER_ADDR, 0);//open sequence
         printk(KERN_INFO "[FT] fpga_reset: channel %u.\n", devInfo->current_chl);
         reg_val = ((devInfo->current_chl-1)<<3)+0x3;
+        if(devInfo->simu_mode) {
+            reg_val += 0x4;
+        }
         write_bar0_u32(devInfo,0x38,reg_val);
     }
 
@@ -373,10 +378,11 @@ int fpga_close(struct inode *inode, struct file *filePtr) {
         write_bar0_u32(devInfo, INNER_TRIGGER_ADDR, 0);//stop inner trigger
         write_bar0_u32(devInfo, 0x38, 0);//clear channel setting
         devInfo->current_chl = 0;
+        devInfo->simu_mode = 0;
     }
 
     up(&devInfo->sem);
-    printk(KERN_INFO "[FT] fpga_close: Entering function.\n");
+    printk(KERN_INFO "[FT] fpga_close: Leaving function.\n");
 
     return 0;
 }
@@ -422,8 +428,8 @@ ssize_t fpga_read(struct file *filePtr, char __user *buf, size_t count, loff_t *
     //read
     while((devInfo->flag_dma_rx>=0) && (bytesDone<count)) {
         //calcute transfer length
-        if((count-bytesDone)>devInfo->dma_rx_size) {
-            len = devInfo->dma_rx_size;
+        if((count-bytesDone)>(devInfo->dma_rx_size-devInfo->rx_cur_index)) {
+            len = (devInfo->dma_rx_size-devInfo->rx_cur_index);
         }
         else {
             len = count-bytesDone;
@@ -439,17 +445,23 @@ ssize_t fpga_read(struct file *filePtr, char __user *buf, size_t count, loff_t *
         }
         //check result
         if(rst) {
-            printk(KERN_INFO "[FT] fpga_read: Interrupted!\n");
+            printk(KERN_INFO "[FT] fpga_read: Interrupted or returned in Non-Block mode!\n");
             break;
         }
         //read buffer
         if(devInfo->rx_buf_cnt>0) {
             //read from buffer
-            copy_to_user(buf+bytesDone, devInfo->rx_buffer[devInfo->rx_pull].buffer, len);
+            copy_to_user(buf+bytesDone, devInfo->rx_buffer[devInfo->rx_pull].buffer+devInfo->rx_cur_index, len);
             bytesDone += len;
             //update index
-            devInfo->rx_pull = (devInfo->rx_pull+1)%DMA_BUFFER_NUM_R;
-            devInfo->rx_buf_cnt--;
+            if ((devInfo->rx_cur_index+len)>=devInfo->dma_rx_size) {
+                devInfo->rx_pull = (devInfo->rx_pull+1)%DMA_BUFFER_NUM_R;
+                devInfo->rx_buf_cnt--;
+                devInfo->rx_cur_index = 0;
+            }
+            else {
+                devInfo->rx_cur_index += len;
+            }
         }
     }
 
@@ -517,8 +529,8 @@ ssize_t fpga_write(struct file *filePtr, const char __user *buf, size_t count, l
         if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),10*1000)>0) {
             //successful
             write_bar0_u32(devInfo,INNER_TRIGGER_ADDR, 1);//open sequence
-            printk(KERN_INFO "[FT] start sequence\n");
-            printk(KERN_INFO "[FT] Sent %d\n",len);
+            //printk(KERN_INFO "[FT] start sequence\n");
+            //printk(KERN_INFO "[FT] Sent %d\n",len);
             bytesDone += len;
         }
         else {
@@ -569,8 +581,28 @@ long fpga_ioctl(struct file *filePtr, unsigned int cmd, unsigned long arg) {
         fpga_stop_dma(devInfo);
         return 0;
     }
+    else if(cmd==FT_TASK_MODE) {
+        if(devInfo->simu_mode) {
+            //clear simulation mode flag
+            devInfo->simu_mode = 0;
+            return fpga_reset(devInfo);
+        }
+        else {
+            return 0;
+        }
+    }
+    else if(cmd==FT_SIMU_MODE) {
+        if(devInfo->simu_mode==0) {
+            //set simulation mode flag
+            devInfo->simu_mode = 1;
+            return fpga_reset(devInfo);
+        }
+        else {
+            return 0;
+        }
+    }
     //invalid command
-    printk(KERN_INFO "[FT] fpga_ioctl: Unknown command %u!\n", cmd);
+    printk(KERN_INFO "[FT] fpga_ioctl: Unknown command 0x%x!\n", cmd);
     return -1;
 }
 
@@ -633,6 +665,7 @@ static int setup_chrdev(struct DevInfo_t *devInfo) {
 
     //initialize current channel
     devInfo->current_chl = 0;
+    devInfo->simu_mode = 0;
 
     return 0;
 }
@@ -710,6 +743,7 @@ static int prepare_chl_buffer(struct DevInfo_t *devInfo) {
     devInfo->rx_push = 0;
     devInfo->rx_pull = 0;
     devInfo->rx_buf_cnt = 0;
+    devInfo->rx_cur_index = 0;
     return 0;
 }
 
@@ -889,7 +923,7 @@ static void remove(struct pci_dev *dev) {
     printk(KERN_INFO "[FT] Unmap bars.\n");
     unmap_bars(devInfo);
 
-    //TODO: does order matter here?
+    //release driver
     printk(KERN_INFO "[FT] Clear master.\n");
     pci_clear_master(dev);
     pci_release_regions(dev);

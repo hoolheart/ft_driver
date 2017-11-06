@@ -2,7 +2,9 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <time.h>
+#include <sys/ioctl.h>
 #include <fcntl.h>
+#include "ft_macros.h"
 
 int main(int argc, char const *argv[]) {
 
@@ -15,6 +17,7 @@ int main(int argc, char const *argv[]) {
         return 1;
     }
     printf("Succeed to open device\n");
+    ioctl(FID,FT_SIMU_MODE,0);
     sleep(2);
 
     //prepare sending data
