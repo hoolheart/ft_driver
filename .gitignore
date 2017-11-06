@@ -2,6 +2,7 @@
 *.d
 *.o
 *.ko
+*.ko.*
 
 # Libraries
 *.lib

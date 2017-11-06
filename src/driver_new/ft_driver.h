@@ -16,12 +16,12 @@
 #define NUM_CHLS 4
 
 /* size to allocate for DMA */
-#define DMA_PAGE_ODR_T 2
+#define DMA_PAGE_ODR_T 1
 static const size_t DMA_PAGE_NUM_T = 1<<DMA_PAGE_ODR_T;
 #define DMA_PAGE_ODR_R 5
 static const size_t DMA_PAGE_NUM_R = 1<<DMA_PAGE_ODR_R;
-#define DMA_BUFFER_NUM_T 128
-#define DMA_BUFFER_NUM_R 32
+#define DMA_BUFFER_NUM_T 16
+#define DMA_BUFFER_NUM_R 16
 
 /** buffer of one channel */
 struct channel_buffer {
