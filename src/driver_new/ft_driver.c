@@ -227,7 +227,7 @@ int fpga_open(struct inode *inode, struct file *filePtr) {
 
     //record current channel
     devInfo->current_chl = chl;
-    devInfo->simu_mode   = 1;
+    devInfo->simu_mode   = 0;
 
     //reset
     //fpga_reset(devInfo);
@@ -434,14 +434,20 @@ ssize_t fpga_read(struct file *filePtr, char __user *buf, size_t count, loff_t *
         else {
             len = count-bytesDone;
         }
-        //down semaphore
-        if((filePtr->f_flags&O_NONBLOCK)>0) {
-            //non blocking mode
-            rst = down_trylock(&devInfo->sem_dma_rx);
+        //consider last remaining part
+        if(devInfo->rx_cur_index>0) {
+            rst = 0;
         }
         else {
-            //blocking mode
-            rst = down_interruptible(&devInfo->sem_dma_rx);
+            //down semaphore
+            if((filePtr->f_flags&O_NONBLOCK)>0) {
+                //non blocking mode
+                rst = down_trylock(&devInfo->sem_dma_rx);
+            }
+            else {
+                //blocking mode
+                rst = down_interruptible(&devInfo->sem_dma_rx);
+            }
         }
         //check result
         if(rst) {
