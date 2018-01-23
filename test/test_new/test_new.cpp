@@ -4,71 +4,54 @@
 #include <time.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
-#include "ft_macros.h"
 
 int main(int argc, char const *argv[]) {
 
     unsigned int dw;
 
     //step 1: open device
-    int FID = open("/dev/pcie_ft4", O_RDWR);
+    int FID = open("/dev/pcie_ft1", O_RDWR);
     if (FID<0) {
         printf("Failed to open device (return value %u)\n", FID);
         return 1;
     }
     printf("Succeed to open device\n");
-    ioctl(FID,FT_SIMU_MODE,0);
     sleep(2);
 
-    //prepare sending data
-    unsigned char sendData[16*1024];
-    for(int i=0;i<16*1024;i++) {
-    	sendData[i] = 0;
-    }
-
     //step 5: receive fibre data
-    const int size = 100*1024*1024;
-    unsigned char *buffer = new unsigned char[size];
-    int remaining = size; int cnt = 0;
+    printf("Start to receive data\n");
+    const int size = 1024*1024*1024;
+    const int count = 128;
+    int single_size = size/count;
+    unsigned char *buffer = new unsigned char[single_size];
+    int remaining = size;
     struct timespec start,stop;
     double time_val = 0.0;
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
-    while((remaining>0)&&(cnt<100000)) {
-        //receive
-        int count = read(FID,buffer,remaining);
-        remaining -= count;
-        if(count<=0) {
-            //send
-            //write(FID,sendData,8*1024);
-            cnt++;
-            usleep(1);
-        }
-        else {
-            printf("Received data %d\n",count);
-            usleep(100);
-        }
-    }
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &stop);
-    time_val = (stop.tv_sec - start.tv_sec) + (stop.tv_nsec - start.tv_nsec) * 1.0e-9;
-    printf("Received total %u fibre data in %f s\n",size-remaining,time_val);
-
-    //print data
-    if((size-remaining)>0) {
-        uint16_t *recvData = (uint16_t*)buffer;
-        printf("10 Received data\n");
-        for(int i=0;i<10;i++) {
-            printf("0x%x\n",recvData[i]);
-        }
+    bool isFirst = true;
+    while(true) {
         //save to file
-        int fd = open("result.dat",O_WRONLY|O_CREAT|O_TRUNC,0666);
-        if(fd>=0) {
-            write(fd,buffer,size-remaining);
-            close(fd);
-            printf("Received data are saved in file: result.dat\n");
+        int fd = open(isFirst?"result0.dat":"result1.dat",O_WRONLY|O_CREAT|O_TRUNC,0666);
+        isFirst = !isFirst;
+        if(fd<0) {
+            continue;
         }
-        else {
-            printf("Open result file failed.\n");
+        //record time
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
+        for(int i=0;i<count;i++) {
+            int remaining = single_size;
+            while(remaining>0) {
+                //receive
+                int len = read(FID,buffer+single_size-remaining,remaining);
+                remaining -= len;
+            }
+            //save to file
+            write(fd,buffer,single_size);
         }
+        close(fd);
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &stop);
+        //print
+        time_val = (stop.tv_sec - start.tv_sec) + (stop.tv_nsec - start.tv_nsec) * 1.0e-9;
+        printf("Received total %u fibre data in %f s and saved to %s\n",size,time_val,isFirst?"result1.dat":"result0.dat");
     }
 
     //close device
