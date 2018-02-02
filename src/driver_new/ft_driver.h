@@ -21,7 +21,7 @@ static const size_t DMA_PAGE_NUM_T = 1<<DMA_PAGE_ODR_T;
 #define DMA_PAGE_ODR_R 5
 static const size_t DMA_PAGE_NUM_R = 1<<DMA_PAGE_ODR_R;
 #define DMA_BUFFER_NUM_T 16
-#define DMA_BUFFER_NUM_R 16
+#define DMA_BUFFER_NUM_R 4096
 
 /** buffer of one channel */
 struct channel_buffer {
