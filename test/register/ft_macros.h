@@ -1,27 +1,10 @@
 #ifndef __FT_MACROS_H__
 #define __FT_MACROS_H__
-#include <stdint.h>
+//#include <stdint.h>
 
 //driver name
 #define DRIVER_NAME "FIBRE_TEST"
-#define BOARD_NAME "pcie_ft1"
-
-//IO COMMAND TYPE
-enum FPGA_IO_CMD {
-    BAR_IO = 0,
-    BAR_IO_REPEAT,
-    DMA_DATA,
-    
-    FPGA_IO_CMD_END
-};
-
-/*I/0 - should move to separate file at some point */
-struct IOCmd_t {
-    uint32_t cmd; //command word see @FPGA_IO_CMD
-    uint8_t barNum; //which bar we are read/writing to
-    uint32_t devAddr; // address relative to BAR that we are read/writing to
-    void * userAddr; // virtual address in user space to read/write from
-};
+#define BOARD_NAME "pcie_ft"
 
 //address
 #define FT_BITE             0x038//BITE
@@ -56,15 +39,14 @@ struct IOCmd_t {
 #define TTL_IN_BASE         0X140
 #define TTL_OUT_BASE        0X148
 
-//signal
-#define TRIGGER_SIGNAL (SIGRTMIN+1)
-
 //ioctl commands
 enum FT_IOCTL_CMD {
     FT_RESET = 0x100,//reset FPGA
     FT_READ_BAR0_U32,//read an u32 data from bar0
     FT_WRITE_BAR0_U32,//write an u32 data to bar0
     FT_STOP_DMA_RX,//stop DMA receiving
+    FT_TASK_MODE,//use real-task mode (no simulation data)
+    FT_SIMU_MODE,//use simulation mode
 
     FT_IOCTL_CMD_END
 };
