@@ -58,6 +58,7 @@ uint32_t readRegister(int fid, uint32_t addr) {
 }
 
 void writeRegister(int fid, uint32_t addr, uint32_t value) {
+    cout << "writing to "<< hex << addr << ": "<< hex << value << endl;
     //prepare Bar0Cmd
     Bar0Cmd_t barCmd = {addr,&value};
     //write
@@ -138,7 +139,7 @@ bool parseLine(string &line) {
 bool parseFile(const string &f_name) {
     cout<<"parsing file: "<<f_name<<endl;
     //prepare file stream
-    ifstream f(f_name,ios::in);
+    ifstream f(f_name.data(),ios::in);
     if(f.is_open()) {
         //parse file
         string line;
