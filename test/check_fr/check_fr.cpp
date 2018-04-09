@@ -24,29 +24,19 @@ enum CHK_STEP {
 
 const int head_len = 6;
 const unsigned int head0 = 0xaaaaaaaa, head1 = 0x55555555;
+const int ignore_cnt = 10;
 
 int main(int argc, char const *argv[]) {
-
-    //open device
-    int FID = open("/dev/pcie_ft1", O_RDWR);
-    if (FID<0) {
-        cout<<"Failed to open device (return value "<<FID<<")"<<endl;
-        return 1;
-    }
-    cout<<"Succeed to open device"<<endl;
-    sleep(1);
     
     //prepare record file
     ofstream f_record("record.txt",ios::out|ios::app);
     if(!f_record.is_open()) {
         cout<<"Failed to open record file"<<endl;
-        close(FID);
         return 2;
     }
     cout<<"Succeed to open record file"<<endl;
 
     //receive fibre data
-    cout<<"Start to receive data"<<endl;
     const int size = 128*1024*1024;
     const int int_size = size/sizeof(unsigned int);
     int remaining = size;
@@ -60,7 +50,20 @@ int main(int argc, char const *argv[]) {
     CHK_STEP step = CHK_HEAD0;
     int head_cnt = 0;
     unsigned int last_cnt_b = 0, last_cnt_m = 0, cnt_b = 0, cnt_m = 0;
+
+    //open device
+    int FID = open("/dev/pcie_ft1", O_RDWR);
+    if (FID<0) {
+        cout<<"Failed to open device (return value "<<FID<<")"<<endl;
+        f_record.close();
+        return 1;
+    }
+    cout<<"Succeed to open device"<<endl;
+    //sleep(1);
     
+    //start receiving data
+    cout<<"Start to receive data"<<endl;
+    int repeat_cnt = 0;
     while(true) {
         //record time
         clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
@@ -74,24 +77,31 @@ int main(int argc, char const *argv[]) {
         //print
         time_val = (stop.tv_sec - start.tv_sec) + (stop.tv_nsec - start.tv_nsec) * 1.0e-9;
         cout<<"Received total "<<size<<" fibre data in "<<time_val<<" s"<<endl;
+        if(repeat_cnt<ignore_cnt) {
+            repeat_cnt++;
+            continue;
+        }
         //process data
         for(int i=0;i<int_size;i++) {
             switch (step) {
             case CHK_HEAD0:
+                //head 0
                 if(int_buf[i]==head0) {
                     step = CHK_HEAD1;
                 }
                 break;
             case CHK_HEAD1:
+                //head 1
                 if(int_buf[i]==head1) {
                     step = CHK_WAIT_CNT;
                     head_cnt = 2;
                 }
-                else {
+                else if(int_buf[i]!=head0) {
                     step = CHK_HEAD0;
                 }
                 break;
             case CHK_WAIT_CNT:
+                //wait head finished
                 head_cnt++;
                 if(head_cnt==head_len) {
                     step = CHK_CNT_B0;
@@ -101,18 +111,22 @@ int main(int argc, char const *argv[]) {
                 }
                 break;
             case CHK_CNT_B0:
+                //first part of big count
                 cnt_b = (int_buf[i]&0xffff);
                 step = CHK_CNT_B1;
                 break;
             case CHK_CNT_B1:
+                //second part of big count
                 cnt_b = (cnt_b<<16)+(int_buf[i]&0xffff);
                 step = CHK_CNT_M0;
                 break;
             case CHK_CNT_M0:
+                //first part of minor count
                 cnt_m = (int_buf[i]&0xffff);
                 step = CHK_CNT_M1;
                 break;
             case CHK_CNT_M1:
+                //secord part of minor count
                 cnt_m = (cnt_m<<16)+(int_buf[i]&0xffff);
                 step = CHK_HEAD0;
                 //record to file
