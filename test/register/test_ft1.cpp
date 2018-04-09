@@ -12,63 +12,20 @@ using namespace std;
 
 #include "ft_macros.h"
 
-void test_bite(int FID) {
-    //prepare iocmd
-    uint32_t tmp;
-    IOCmd_t iocmd = {BAR_IO,0,FT_BITE,(void *)&tmp};
-    //read
-    read(FID, &iocmd, sizeof(uint32_t));
-    //print
-    cout << "Using read interface" << endl;
-    cout << "state register " << tmp << endl;
-    cout << "PCI-e state: " << ((tmp&0x10000)?"OK":"Error") << endl;
-    cout << "DDR2 state: " << ((tmp&0x20000)?"OK":"Error") << endl;
-    for (int i=0;i<4;i++) {
-        cout << "Fibre Reset " << i+1 << ": " << ((tmp&(1<<(20+i)))?"OK":"Error") << endl;
-        cout << "Fibre Signal " << i+1 << ": " << ((tmp&(1<<(24+i)))?"ON":"OFF") << endl;
-    }
+uint32_t readRegister(int fid, uint32_t addr) {
     //prepare Bar0Cmd
-    Bar0Cmd_t barCmd = {FT_BITE,&tmp};
+    uint32_t tmp;
+    Bar0Cmd_t barCmd = {addr,&tmp};
     //read
-    ioctl(FID,FT_READ_BAR0_U32,&barCmd);
-    //print
-    cout << "Using ioctl interface" << endl;
-    cout << "state register " << tmp << endl;
-    cout << "PCI-e state: " << ((tmp&0x10000)?"OK":"Error") << endl;
-    cout << "DDR2 state: " << ((tmp&0x20000)?"OK":"Error") << endl;
-    for (int i=0;i<4;i++) {
-        cout << "Fibre Reset " << i+1 << ": " << ((tmp&(1<<(20+i)))?"OK":"Error") << endl;
-        cout << "Fibre Signal " << i+1 << ": " << ((tmp&(1<<(24+i)))?"ON":"OFF") << endl;
-    }
+    ioctl(fid,FT_READ_BAR0_U32,&barCmd);
+    return tmp;
 }
 
-void test_cpi_freq(int FID) {
-    //prepare iocmd
-    uint32_t tmp = 100;
-    IOCmd_t iocmd = {BAR_IO,0,CPI_FREQ_BASE,(void *)&tmp};
-    //write
-    cout<< "write return " << write(FID, &iocmd, sizeof(uint32_t)) << endl;
-    //print
-    cout << "Using write interface" << endl;
-    cout << "Set CPI1 FREQ: " << tmp << endl;
-    //read
-    read(FID, &iocmd, sizeof(uint32_t));
-    //print
-    cout << "Using read interface" << endl;
-    cout << "Get CPI1 FREQ: " << tmp << endl;
+void writeRegister(int fid, uint32_t addr, uint32_t value) {
     //prepare Bar0Cmd
-    tmp = 200;
-    Bar0Cmd_t barCmd = {CPI_FREQ_BASE,&tmp};
+    Bar0Cmd_t barCmd = {addr,&value};
     //write
-    cout << "return form ioctl write_bar " << ioctl(FID,FT_WRITE_BAR0_U32,&barCmd) << endl;
-    //print
-    cout << "Using ioctl interface" << endl;
-    cout << "Set CPI1 FREQ: " << tmp << endl;
-    //read
-    ioctl(FID,FT_READ_BAR0_U32,&barCmd);
-    //print
-    cout << "Using ioctl interface" << endl;
-    cout << "Get CPI1 FREQ: " << tmp << endl;
+    ioctl(fid,FT_WRITE_BAR0_U32,&barCmd);
 }
 
 int main(int argc, char const *argv[]) {
@@ -80,10 +37,28 @@ int main(int argc, char const *argv[]) {
         cout << "Could not open device handle!" << endl;
         return -1;
     }
+    cout << endl;
 
-    //testing
-    test_bite(FID);
-    test_cpi_freq(FID);
+    //test read
+    uint32_t tmp = readRegister(FID, FT_BITE);
+    cout << "Read BITE register" << endl;
+    cout << "state register " << tmp << endl;
+    cout << "PCI-e state: " << ((tmp&0x10000)?"OK":"Error") << endl;
+    cout << "DDR2 state: " << ((tmp&0x20000)?"OK":"Error") << endl;
+    for (int i=0;i<4;i++) {
+        cout << "Fibre Reset " << i+1 << ": " << ((tmp&(1<<(20+i)))?"OK":"Error") << endl;
+        cout << "Fibre Signal " << i+1 << ": " << ((tmp&(1<<(24+i)))?"ON":"OFF") << endl;
+    }
+    cout << endl;
+
+    //test write
+    tmp = 100;
+    writeRegister(FID, CPI_FREQ_BASE, tmp);
+    cout << "Write CPI_FREQ_BASE register" << endl;
+    cout << "Set CPI1 FREQ: " << tmp << endl;
+    //read
+    tmp = readRegister(FID, CPI_FREQ_BASE);
+    cout << "Get CPI1 FREQ: " << tmp << endl;
 
     //close file
     close(FID);
