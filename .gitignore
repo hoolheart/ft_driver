@@ -23,6 +23,7 @@
 *Module.symvers
 
 # special
+src/config/config
 test/test_lib/test_lib
 test/register/test_ft1
 test/test_new/test_new
