@@ -25,6 +25,7 @@ int main(int argc, char const *argv[]) {
     ofstream f_record("record.txt",ios::out|ios::app);
     if(!f_record.is_open()) {
         cout<<"Failed to open record file"<<endl;
+        close(FID);
         return 2;
     }
     cout<<"Succeed to open record file"<<endl;
