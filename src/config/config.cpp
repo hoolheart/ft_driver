@@ -126,7 +126,7 @@ bool parseLine(string &line) {
         return s>>syn_length;
     }
     else if(key=="syn_kcode") {
-        return s>>syn_kcode;
+        return s>>std::hex>>syn_kcode;
     }
     else if(key=="syn_value") {
         return s>>std::hex>>syn_value;
@@ -135,7 +135,7 @@ bool parseLine(string &line) {
         return s>>idle_length;
     }
     else if(key=="idle_kcode") {
-        return s>>idle_kcode;
+        return s>>std::hex>>idle_kcode;
     }
     else if(key=="idle_value") {
         return s>>std::hex>>idle_value;
@@ -173,10 +173,10 @@ bool parseFile(const string &f_name) {
 void printSetting() {
     cout<<"speed code: "<<speed_code<<endl;
     cout<<"syn length: "<<syn_length<<endl;
-    cout<<"syn kcode: "<<syn_kcode<<endl;
+    cout<<"syn kcode: "<<std::hex<<syn_kcode<<endl;
     cout<<"syn value: "<<std::hex<<syn_value<<endl;
     cout<<"idle length: "<<idle_length<<endl;
-    cout<<"idle kcode: "<<idle_kcode<<endl;
+    cout<<"idle kcode: "<<std::hex<<idle_kcode<<endl;
     cout<<"idle value: "<<std::hex<<idle_value<<endl;
 }
 
