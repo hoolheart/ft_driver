@@ -20,8 +20,9 @@ if [ -z "$majorNum" ]; then
 else
     #change file mode
     chmod 666 /dev/pcie_ft*
-
-    echo "Success!"
+    echo "Success to load driver"
+    chmod +x config
+    ./config
 fi
 
 
