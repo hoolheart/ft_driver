@@ -22,8 +22,8 @@ using namespace std;
 #define ADDR_PLL_SRC   0X3008
 #define ADDR_CHL_RESET 0X300C
 #define CHL_RANGE      0X800
-#define OFFSET_CPLL1   0X5E
-#define OFFSET_CPLL2   0X88
+#define OFFSET_CPLL1   0X178
+#define OFFSET_CPLL2   0X220
 #define ADDR_SYN_SET   0X3040
 #define ADDR_SYN_PARA  0X3044
 #define ADDR_IDLE_SET  0X3050
@@ -36,8 +36,8 @@ struct speed_setting {
 };
 
 struct speed_setting predefines[10] = {
-    {3,0x1002,0x11},{1,0x1002,0x11},{2,0x1082,0x11},{1,0x1082,0x11},{1,0x1083,0x11},
-    {3,0x1002,0},{1,0x1002,0},{2,0x1082,0},{1,0x1082,0},{1,0x1083,0}
+    {3,0x3002,0x11},{1,0x3002,0x11},{2,0x3082,0x11},{1,0x3082,0x11},{1,0x3083,0x11},
+    {3,0x3002,0},{1,0x3002,0},{2,0x3082,0},{1,0x3082,0},{1,0x3083,0}
 };
 
 int32_t speed_code = 1,
@@ -54,11 +54,12 @@ uint32_t readRegister(int fid, uint32_t addr) {
     Bar0Cmd_t barCmd = {addr,&tmp};
     //read
     ioctl(fid,FT_READ_BAR0_U32,&barCmd);
+    //cout << "read from" << hex << addr <<":"<<hex << tmp << endl; 
     return tmp;
 }
 
 void writeRegister(int fid, uint32_t addr, uint32_t value) {
-    cout << "writing to "<< hex << addr << ": "<< hex << value << endl;
+    //cout << "wrting to" << hex << addr <<":"<<hex << value << endl;    
     //prepare Bar0Cmd
     Bar0Cmd_t barCmd = {addr,&value};
     //write
@@ -74,23 +75,31 @@ void applySetting(int fid) {
     cout<<"Setting..."<<endl;
     struct speed_setting &s_setting = predefines[speed_code-1];//get setting
     writeRegister(fid,ADDR_CPLL,s_setting.clock);
+    usleep(10000);
     for(int i=0;i<4;i++) {
         uint32_t chl_base = CHL_RANGE*(i+1);
         writeRegister(fid,chl_base+OFFSET_CPLL1,s_setting.para0);
+        usleep(10000);
         writeRegister(fid,chl_base+OFFSET_CPLL2,s_setting.para1);
+        usleep(10000);
     }
     //synchronized head
-    uint32_t syn_para = (syn_length<<4) + (syn_kcode&0xf);
+    uint32_t syn_para = (syn_length<<16) + (syn_kcode&0xf);
     writeRegister(fid,ADDR_SYN_PARA,syn_para);
+    usleep(10000);
     writeRegister(fid,ADDR_SYN_SET,syn_value);
+    usleep(10000);
     //idle code
-    uint32_t idle_para = (idle_length<<4) + (idle_kcode&0xf);
+    uint32_t idle_para = (idle_length<<16) + (idle_kcode&0xf);
     writeRegister(fid,ADDR_IDLE_PARA,idle_para);
+    usleep(10000);
     writeRegister(fid,ADDR_IDLE_SET,idle_value);
+    usleep(10000);
     //reset channels
     cout<<"Reset channels..."<<endl;
     writeRegister(fid,ADDR_CHL_RESET,0);
     writeRegister(fid,ADDR_CHL_RESET,1);
+    usleep(10000);
     writeRegister(fid,ADDR_CHL_RESET,0);
     cout<<"Succeed to configure board"<<endl;
 }
