@@ -534,7 +534,7 @@ ssize_t fpga_write(struct file *filePtr, const char __user *buf, size_t count, l
         //wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),10*1000);
         if(wait_event_interruptible_timeout(devInfo->wait_dma_tx,(devInfo->flag_dma_tx==1),10*1000)>0) {
             //successful
-            write_bar0_u32(devInfo,INNER_TRIGGER_ADDR, 1);//open sequence
+            //write_bar0_u32(devInfo,INNER_TRIGGER_ADDR, 1);//open sequence
             //printk(KERN_INFO "[FT] start sequence\n");
             //printk(KERN_INFO "[FT] Sent %d\n",len);
             bytesDone += len;

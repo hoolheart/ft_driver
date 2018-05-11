@@ -16,7 +16,7 @@
 #define NUM_CHLS 4
 
 /* size to allocate for DMA */
-#define DMA_PAGE_ODR_T 1
+#define DMA_PAGE_ODR_T 3
 static const size_t DMA_PAGE_NUM_T = 1<<DMA_PAGE_ODR_T;
 #define DMA_PAGE_ODR_R 5
 static const size_t DMA_PAGE_NUM_R = 1<<DMA_PAGE_ODR_R;
