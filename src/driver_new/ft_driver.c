@@ -282,6 +282,27 @@ int fpga_reprobe(struct DevInfo_t *devInfo) {
     return 0;
 }
 
+void fpga_stop_dma(struct DevInfo_t *devInfo) {
+    printk(KERN_INFO "[FT] flags: %d %d\n",devInfo->flag_dma_rx,devInfo->flag_dma_tx);
+    //stop rx
+    if(devInfo->flag_dma_rx>=0) {
+        devInfo->flag_stop = 1;
+        if(wait_for_flag(&devInfo->flag_dma_rx, -1, 1, 1000)==0) {
+            printk(KERN_INFO "[FT] fpga_ioctl: Failed to stop receiving!\n");
+            pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, devInfo->dma_rx_size, PCI_DMA_FROMDEVICE);
+        }
+        devInfo->flag_dma_rx = -1;
+    }
+    //stop tx
+    if(devInfo->flag_dma_tx>=0) {
+        pci_unmap_single(devInfo->pciDev, devInfo->dma_tx_mem, devInfo->dma_tx_size, PCI_DMA_TODEVICE);
+        devInfo->flag_dma_tx = -1;
+    }
+    //stop DMA in device
+    write_bar0_u32(devInfo,0x28,0x30);
+    write_bar0_u32(devInfo,0x28,0x00);
+}
+
 //reset FPGA
 int fpga_reset(struct DevInfo_t *devInfo) {
     //prepare register value
@@ -295,21 +316,9 @@ int fpga_reset(struct DevInfo_t *devInfo) {
         return -1;
     }
 
-    //reset DMA mappings
-    printk(KERN_INFO "[FT] flags: %d %d\n",devInfo->flag_dma_rx,devInfo->flag_dma_tx);
-    if(devInfo->flag_dma_rx>=0) {
-        devInfo->flag_stop = 1;
-        if(wait_for_flag(&devInfo->flag_dma_rx, -1, 1, 1000)==0) {
-            printk(KERN_INFO "[FT] fpga_reset: Failed to stop receiving!\n");
-            pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, devInfo->dma_rx_size, PCI_DMA_FROMDEVICE);
-        }
-        devInfo->flag_dma_rx = -1;
-        devInfo->flag_stop = 0;
-    }
-    if(devInfo->flag_dma_tx>=0) {
-        pci_unmap_single(devInfo->pciDev, devInfo->dma_tx_mem, devInfo->dma_tx_size, PCI_DMA_TODEVICE);
-        devInfo->flag_dma_tx = -1;
-    }
+    //stop DMA
+    fpga_stop_dma(devInfo);
+    devInfo->flag_stop = 0;
 
     //free irq first
     disable_int(devInfo);
@@ -328,7 +337,7 @@ int fpga_reset(struct DevInfo_t *devInfo) {
 
     //re-start task
     if((devInfo->current_chl>0) && (devInfo->current_chl<=NUM_CHLS)) {
-        write_bar0_u32(devInfo,TRIGGER_ADDR, 0);//open sequence
+        //write_bar0_u32(devInfo, TRIGGER_ADDR, 0);//open sequence
         printk(KERN_INFO "[FT] fpga_reset: channel %u.\n", devInfo->current_chl);
         reg_val = ((devInfo->current_chl-1)<<3)+0x3;
         if(devInfo->simu_mode) {
@@ -342,18 +351,6 @@ int fpga_reset(struct DevInfo_t *devInfo) {
 
     printk(KERN_INFO "[FT] fpga_reset: Leaving function.\n");
     return 0;
-}
-
-void fpga_stop_dma(struct DevInfo_t *devInfo) {
-    //stop
-    if(devInfo->flag_dma_rx>=0) {
-        devInfo->flag_stop = 1;
-        if(wait_for_flag(&devInfo->flag_dma_rx, -1, 1, 1000)==0) {
-            printk(KERN_INFO "[FT] fpga_ioctl: Failed to stop receiving!\n");
-            pci_unmap_single(devInfo->pciDev, devInfo->dma_rx_mem, devInfo->dma_rx_size, PCI_DMA_FROMDEVICE);
-        }
-        devInfo->flag_dma_rx = -1;
-    }
 }
 
 int fpga_close(struct inode *inode, struct file *filePtr) {
@@ -375,7 +372,7 @@ int fpga_close(struct inode *inode, struct file *filePtr) {
     //stop task
     if((chl==devInfo->current_chl) && (chl>0)) {
         fpga_stop_dma(devInfo);
-        write_bar0_u32(devInfo, INNER_TRIGGER_ADDR, 0);//stop inner trigger
+        //write_bar0_u32(devInfo, INNER_TRIGGER_ADDR, 0);//stop inner trigger
         write_bar0_u32(devInfo, 0x38, 0);//clear channel setting
         devInfo->current_chl = 0;
         devInfo->simu_mode = 0;
