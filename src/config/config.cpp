@@ -24,7 +24,6 @@ using namespace std;
 #define CHL_RANGE      0X800
 #define OFFSET_CPLL1   0X178
 #define OFFSET_CPLL2   0X220
-#define OFFSET _CC0      0X
 #define ADDR_SYN_SET   0X3040
 #define ADDR_SYN_PARA  0X3044
 #define ADDR_IDLE_SET  0X3050
@@ -41,7 +40,7 @@ struct speed_setting predefines[10] = {
     {3,0x3002,0},{1,0x3002,0},{2,0x3082,0},{1,0x3082,0},{1,0x3083,0}
 };
 
-uint32_t speed_code = 1,
+int32_t speed_code = 1,
     syn_length = 2,
     syn_kcode  = 3,
     syn_value  = 0x5a5a,
